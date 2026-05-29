@@ -5,34 +5,39 @@ from math import pi
 from copy import deepcopy
 import numpy as np
 import open3d as o3d
+import time
+
 
 # ROS
-import rospy
-import actionlib
-import tf
-import tf.transformations
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient, ActionServer
+from rclpy.executors import MultiThreadedExecutor
+import tf2_ros
+import tf_transformations
 from visualization_msgs.msg import Marker
-from geometry_msgs.msg import PoseStamped, Vector3Stamped, Transform, Point, Quaternion, PointStamped, Vector3, Pose
+from geometry_msgs.msg import PoseStamped, Vector3Stamped, Transform, Point, Quaternion, PointStamped, Vector3, Pose,TransformStamped
 from std_msgs.msg import Header
 from vision_msgs.msg import BoundingBox3D, BoundingBox3DArray
-from moveit_msgs.msg import PlaceLocation
-from trajectory_msgs.msg import JointTrajectoryPoint
 
 # V4R
-from moveit_wrapper import MoveitWrapper
-from hsr_wrapper import HSR_wrapper
+from grasping_pipeline.moveit_single_node import MoveItSingleNode
+from grasping_pipeline.hsr_wrapper import HSR_wrapper
 from v4r_util.tf2 import TF2Wrapper
 from v4r_util.conversions import bounding_box_to_bounding_box_stamped, list_to_vector3, vector3_to_list, rot_mat_to_quat, quat_to_rot_mat, np_transform_to_ros_transform, np_transform_to_ros_pose
 from v4r_util.bb import transform_bounding_box_w_transform, ros_bb_to_o3d_bb, o3d_bb_to_ros_bb
 from v4r_util.alignment import align_bounding_box_rotation
 from v4r_util.rviz_visualization.rviz_visualizer import RvizVisualizer
-from grasping_pipeline_msgs.msg import PlaceAction, PlaceActionResult 
+from grasping_pipeline_msgs.action import Place
 
 # Toyota
-from tmc_geometric_shapes_msgs.msg import Shape
-from tmc_placement_area_detector.srv import DetectPlacementArea
+# from tmc_geometric_shapes_msgs.msg import Shape
+# from tmc_placement_area_detector.srv import DetectPlacementArea
+# moved for ROS2
+from tmc_manipulation_msgs.msg import Shape
+# from tmc_manipulation_msgs.srv import DetectPlacementArea
 
-class PlaceObjectServer():
+class PlaceObjectServer(Node):
     '''
     Server for placing an object on a plane
     
@@ -92,16 +97,37 @@ class PlaceObjectServer():
         Creates a TF2Wrapper, MoveitWrapper, HSR_wrapper, and an action server for the place_object
         action.
         '''
-        self.tf2_wrapper = TF2Wrapper()
-        self.moveit = MoveitWrapper(self.tf2_wrapper, planning_time=10.0)
+        super().__init__('place_object_server')
+
+        self.declare_parameter('grasping_pipeline.placement.method','waypoint')
+        self.method = self.get_parameter('grasping_pipeline.placement.method').get_parameter_value().string_value
+        self.declare_parameter('grasping_pipeline.placement.max_attempts', 25)
+        self.max_placement_attempts = self.get_parameter('grasping_pipeline.placement.max_attempts').get_parameter_value().integer_value
+
+        self.tf2_wrapper = TF2Wrapper(self)
+        self.moveit = MoveItSingleNode.get(self.tf2_wrapper, self)
         self.hsr_wrapper = HSR_wrapper()
 
-        self.server = actionlib.SimpleActionServer(
-            'place_object', PlaceAction, self.execute, False)
-        self.server.start()
-        self.bb_vis = RvizVisualizer('grasping_pipeline/placement_debug_bb')
+        self.action_server = ActionServer(
+            self,
+            Place,
+            'place_object',
+            execute_callback=self.execute_callback
+        )
+        
+        # self.placement_client = self.create_client(
+        #     DetectPlacementArea,
+        #     'detect_placement_area'
+        # )
+        self.bb_vis = RvizVisualizer(node = self, topic = 'grasping_pipeline/placement_debug_bb')
 
-        rospy.loginfo("Init Placement")
+        self.marker_pub = self.create_publisher(
+            Marker,
+            '/grasping_pipeline/placement_marker',
+            100
+        )
+
+        self.get_logger().info("Init Placement")
     
     def transform_plane_normal(self, table_equation, target_frame, stamp):
         '''
@@ -163,6 +189,7 @@ class PlaceObjectServer():
         '''
         # Get the bounding box of the object that is attached to the robot
         att_objects = self.moveit.get_attached_objects()
+        self.get_logger().info(f"attached objects {att_objects}")
         att_object_pose = att_objects['object'].object.pose
         att_object_dimensions = att_objects['object'].object.primitives[0].dimensions
         attached_object_bb = BoundingBox3D(center = att_object_pose, size = list_to_vector3(att_object_dimensions))
@@ -177,12 +204,12 @@ class PlaceObjectServer():
 
         # Transform the target bounding box to the placement area detection frame (usually map)
         target_bb = self.tf2_wrapper.transform_bounding_box(
-            bounding_box_to_bounding_box_stamped(target_bb, 'base_link', rospy.Time.now()), 
+            bounding_box_to_bounding_box_stamped(target_bb, 'base_link', self.get_clock().now().to_msg()), 
             placement_area_det_frame)
         
-        if placement_area_bb != None and placement_area_bb.header.frame_id != '':
+        if placement_area_bb is not None and placement_area_bb.header.frame_id != '':
             if placement_area_bb.header.frame_id != placement_area_det_frame:
-                rospy.logerr("Wrong frame for placement area bb. Should probably do a transform here at some point. Expected: %s, got: %s" % (placement_area_det_frame, placement_area_bb.header.frame_id))
+                self.get_logger().error("Wrong frame for placement area bb. Should probably do a transform here at some point. Expected: %s, got: %s" % (placement_area_det_frame, placement_area_bb.header.frame_id))
                 raise NotImplementedError
             
             # Using the passed placement area bb. Fixing the rotation for visualization
@@ -190,9 +217,10 @@ class PlaceObjectServer():
             target_bb.center.orientation = Quaternion(x=0, y=0, z=0, w=1)
 
         # Visualize the target bounding box
-        header = Header(stamp=rospy.Time.now(), frame_id=placement_area_det_frame)
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=placement_area_det_frame)
         self.bb_vis.publish_ros_bb(target_bb, header, "target_bb")
-        rospy.sleep(0.05)
+        # not sure if it is needed to sleep here, maybe the visualization will not be visible if the placement area detection is called immediately after
+        #rospy.sleep(0.05)
 
         # Get the target point and box filter range for the placement area detector and call the detector
         target_point = target_bb.center.position
@@ -245,16 +273,16 @@ class PlaceObjectServer():
 
         obj_bb_base_frame = transform_bounding_box_w_transform(
             obj_bb_table_frame, base_to_table_transform)
-        header = Header(stamp=rospy.Time.now(), frame_id='base_link')
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id='base_link')
         self.bb_vis.publish_ros_bb(obj_bb_base_frame, header, "obj_bb_base_frame")
 
         obj_bb_map_frame = transform_bounding_box_w_transform(obj_bb_base_frame, world_to_base_transform)
-        header = Header(stamp=rospy.Time.now(), frame_id='map')
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id='map')
         self.bb_vis.publish_ros_bb(obj_bb_map_frame, header, "obj_bb_map_frame")
         
         obj_bb_map_frame_aligned = align_bounding_box_rotation(ros_bb_to_o3d_bb(obj_bb_map_frame))
         obj_bb_map_frame_aligned = o3d_bb_to_ros_bb(obj_bb_map_frame_aligned)
-        header = Header(stamp=rospy.Time.now(), frame_id='map')
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id='map')
         self.bb_vis.publish_ros_bb(obj_bb_map_frame_aligned, header, "obj_bb_map_frame_aligned")
         
         return obj_bb_map_frame_aligned
@@ -311,45 +339,64 @@ class PlaceObjectServer():
         object_to_surface = Pose()
         surface_range = 1.0
 
-        rospy.wait_for_service('detect_placement_area')
-        while True:
-            try:
-                # Toyota Detect Placement Area Service:
-                # frame: everything (points and x,y,z axis) are relative to this frame
-                # target_point x,y,z is a rough estimation of a point on a table (best if its middle point)
-                # box filter range x,y,z filters pointcloud in x,y,z direction around target point
-                # (if x_range = 0.2: filters out everything that is not inside target_point +- 0.1)
-                # vertical axis: looks for planes that have a surface normal in the direction of the vertical axis
-                # tilt_threshold: threshold for how tilted the place is allowed to be around the vertical axis in radians
-                # distance_threshold: probably RANSAC plane detection inlier distance
-                # object_shape: mesh of object
-                # object_to_surface, translation and rotation of object compared to surface of plane,
-                # basically post-processing transformation of the point that their algorithm normally returns
-                # for translation just does an addition at the end to translate pose, doesn't check wether this pose is free
-                # surface_range: I ran valuse from 1E22 to 1E-22, always same behaviour unless range was zero, then it did nothing
-                detect_placement_area = rospy.ServiceProxy(
-                    'detect_placement_area', DetectPlacementArea)
-                response = detect_placement_area(placement_area_det_frame, target_point, box_filter_range, vertical_axis,
-                                                tilt_threshold, distance_threshold, object_shape, object_to_surface, surface_range)
-            except rospy.ServiceException as e:
-                print("DetectPlacmentAreaService call failed: %s" % e)
+        # Wait for the service to be available
+        while not self.placement_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Service not available, waiting again...')
+        # Build the request
+        # Toyota Detect Placement Area Service:
+            # frame: everything (points and x,y,z axis) are relative to this frame
+            # target_point x,y,z is a rough estimation of a point on a table (best if its middle point)
+            # box filter range x,y,z filters pointcloud in x,y,z direction around target point
+            # (if x_range = 0.2: filters out everything that is not inside target_point +- 0.1)
+            # vertical axis: looks for planes that have a surface normal in the direction of the vertical axis
+            # tilt_threshold: threshold for how tilted the place is allowed to be around the vertical axis in radians
+            # distance_threshold: probably RANSAC plane detection inlier distance
+            # object_shape: mesh of object
+            # object_to_surface, translation and rotation of object compared to surface of plane,
+            # basically post-processing transformation of the point that their algorithm normally returns
+            # for translation just does an addition at the end to translate pose, doesn't check wether this pose is free
+            # surface_range: I ran valuse from 1E22 to 1E-22, always same behaviour unless range was zero, then it did nothing                
+        # request = DetectPlacementArea.Request()
+        # request.frame = placement_area_det_frame
+        # request.target_point = target_point
+        # request.box_filter_range = box_filter_range
+        # request.vertical_axis = vertical_axis
+        # request.tilt_threshold = tilt_threshold
+        # request.distance_threshold = distance_threshold
+        # request.object_shape = object_shape
+        # request.object_to_surface = object_to_surface
+        # request.surface_range = surface_range
+        # while True:
+        #     # Call the service
+        #     future = self.placement_client.call_async(request)
 
-            if response.error_code.val == 1:
-                return response.placement_area
-            elif response.error_code.val == -1:
-                print("ErrorCode: FAIL")
-            elif response.error_code.val == -2:
-                print("ErrorCode: INVALID_FRAME")
-            elif response.error_code.val == -3:
-                print("ErrorCode: NO_POINTCLOUD")
-            elif response.error_code.val == -4:
-                print("ErrorCode: NO_ACCEPTABLE_PLANE")
-            elif response.error_code.val == -5:
-                print("ErrorCode: INVALID_OBJECT_SURFACE")
-            elif response.error_code.val == -1:
-                print("ErrorCode: NON_POSITIVE")
-            elif response.error_code.val == -1:
-                print("ErrorCode: ZERO_VECTOR")
+        #     # Wait for response
+        #     rclpy.spin_until_future_complete(self, future)
+        
+        #     if future.result() is None:
+        #         self.get_logger().warn(f"Service call failed, retry ...")
+        #         continue
+            
+        #     response = future.result()
+        #     self.get_logger().error('DetectPlacmentAreaService call failed')
+        #     if response.error_code.val == 1:
+        #         return response.placement_area
+        #     elif response.error_code.val == -1:
+        #         print("ErrorCode: FAIL")
+        #     elif response.error_code.val == -2:
+        #         print("ErrorCode: INVALID_FRAME")
+        #     elif response.error_code.val == -3:
+        #         print("ErrorCode: NO_POINTCLOUD")
+        #     elif response.error_code.val == -4:
+        #         print("ErrorCode: NO_ACCEPTABLE_PLANE")
+        #     elif response.error_code.val == -5:
+        #         print("ErrorCode: INVALID_OBJECT_SURFACE")
+        #     elif response.error_code.val == -1:
+        #         print("ErrorCode: NON_POSITIVE")
+        #     elif response.error_code.val == -1:
+        #         print("ErrorCode: ZERO_VECTOR")
+        
+        
                 
     def find_intersecting_table_plane(self, table_planes, bb):
         '''
@@ -494,7 +541,7 @@ class PlaceObjectServer():
         surface_to_wrist = np.linalg.inv(transform)
         return surface_to_wrist
 
-    def execute(self, goal):
+    def execute_callback(self, goal_handle):
         '''
         Execute the place_object action.
         
@@ -530,7 +577,7 @@ class PlaceObjectServer():
             the object placement surface to the wrist (transformation from the center of the object 
             plane which touched the table plane, i.e. the 'bottom' surface of the object).
         '''
-        rospy.loginfo("Placement: Executing")
+        self.get_logger().info("Placement: Executing")
         base_frame = 'base_link'
         eef_frame = 'hand_palm_link'
         planning_frame = 'odom'
@@ -538,36 +585,36 @@ class PlaceObjectServer():
 
         # Get pose of 'base_link' in placement_area_det_frame ('map')
         base_pose_map = self.moveit.get_current_pose(placement_area_det_frame)
+        request = goal_handle.request
         
-        placement_area_bb = goal.placement_area_bb
-        if placement_area_bb != None and placement_area_bb.header.frame_id != '':
-            table_idx = self.find_intersecting_table_plane(goal.table_plane_equations, ros_bb_to_o3d_bb(placement_area_bb))
+        placement_area_bb = request.placement_area_bb
+        if placement_area_bb is not None and placement_area_bb.header.frame_id != '':
+            table_idx = self.find_intersecting_table_plane(request.table_plane_equations, ros_bb_to_o3d_bb(placement_area_bb))
             if table_idx is None:
-                rospy.logwarn("Placement: No table plane intersecting with placement area. Aborting")
-                self.server.set_aborted()
-                return
-            table_bb = goal.table_bbs.boxes[table_idx]
-            table_equation = goal.table_plane_equations[table_idx]
-        elif len(goal.table_plane_equations) > 1:
-            sorted_table_planes, sorted_table_bbs = self.sort_closest_plane(goal.table_plane_equations, goal.table_bbs, base_pose_map)
+                self.get_logger().warn("Placement: No table plane intersecting with placement area. Aborting")
+                return goal_handle.abort()
+            table_bb = request.table_bbs.boxes[table_idx]
+            table_equation = request.table_plane_equations[table_idx]
+        elif len(request.table_plane_equations) > 1:
+            sorted_table_planes, sorted_table_bbs = self.sort_closest_plane(request.table_plane_equations, request.table_bbs, base_pose_map)
 
             # Using the first table plane (TODO: Check if this is good practice, maybe even choose biggest)
             table_bb = sorted_table_bbs.boxes[0]
             table_equation = sorted_table_planes[0]
-        elif len(goal.table_plane_equations) == 1:
+        elif len(request.table_plane_equations) == 1:
             # Only one table plane passed, no need to sort
-            table_bb = goal.table_bbs.boxes[0]
-            table_equation = goal.table_plane_equations[0]
+            table_bb = request.table_bbs.boxes[0]
+            table_equation = request.table_plane_equations[0]
         else:
-            rospy.logwarn("No table planes passed. Aborting")
-            self.server.set_aborted()
-            return
+            self.get_logger().warn("No table planes passed. Aborting")
+            return goal_handle.abort()
+
 
         # Add box to planning scene
-        self.moveit.add_box('table', goal.table_bbs.header.frame_id, table_bb.center, vector3_to_list(table_bb.size))
+        self.moveit.add_box('table', request.table_bbs.header.frame_id, table_bb.center, vector3_to_list(table_bb.size))
 
         # Transforming bb to base frame
-        table_bb_stamped = bounding_box_to_bounding_box_stamped(table_bb, goal.table_bbs.header.frame_id, rospy.Time.now())
+        table_bb_stamped = bounding_box_to_bounding_box_stamped(table_bb, request.table_bbs.header.frame_id, self.get_clock().now().to_msg())
         table_bb_stamped = self.tf2_wrapper.transform_bounding_box(table_bb_stamped, base_frame)
 
         # Align the table bb with its frame
@@ -577,36 +624,32 @@ class PlaceObjectServer():
         # Get the orientation of the table
         quat = rot_mat_to_quat(deepcopy(aligned_table_bb.R))
         
-        placement_areas = self.detect_placement_areas(goal.placement_surface_to_wrist, base_pose_map.pose, aligned_table_bb_ros, placement_area_det_frame, placement_area_bb)
+        placement_areas = self.detect_placement_areas(request.placement_surface_to_wrist, base_pose_map.pose, aligned_table_bb_ros, placement_area_det_frame, placement_area_bb)
         
-        method = rospy.get_param('/grasping_pipeline/placement/method')
-        if method == "waypoint":
+        if self.method == "waypoint":
             # Placing in a shelf -> choose furthest placement area
             # TODO: Instead of furthest away, maybe choose furthest distance into the direction of the shelf 
             # Problem: Which direction? E.g. choose direction Sasha is Facing
             sorted_placement_areas = self.sort_placement_areas_by_distance(placement_areas, base_pose_map)
-        elif method == "place":
+        elif self.method == "place":
             # Placing on table -> choose placement area closest to center
-            # TODO: This only makes sense for the table but any unknown placement area we should 
-            # probably just use the closest placement point (or furthest in some use cases)
             bb_center = PoseStamped()
-            bb_center.header.frame_id = base_frame
+            bb_center.header = base_pose_map.header
             bb_center.pose = aligned_table_bb_ros.center
-            bb_center = self.tf2_wrapper.transform_pose(placement_area_det_frame, bb_center)
             sorted_placement_areas = self.sort_placement_areas_by_distance(placement_areas, bb_center, reverse=False)
-
+        
          
-        surface_to_wrist = self.get_surface_to_wrist_transform(goal.placement_surface_to_wrist)
+        surface_to_wrist = self.get_surface_to_wrist_transform(request.placement_surface_to_wrist)
 
         execution_succesful = False
-        max_placement_attempts = rospy.get_param("/grasping_pipeline/placement/max_attempts")
         
-        if method == 'waypoint':
+        
+        if self.method == 'waypoint':
             for i, placement_area in enumerate(sorted_placement_areas):
-                if i >= max_placement_attempts:
-                    rospy.logwarn(f"Placement: {i+1} poses failed. Aborting")
+                if i >= self.max_placement_attempts:
+                    self.get_logger().warn(f"Placement: {i+1} poses failed. Aborting")
                     break
-                header = Header(stamp=rospy.Time.now(), frame_id= placement_area_det_frame)
+                header = Header(stamp=self.get_clock().now().to_msg(), frame_id= placement_area_det_frame)
                 placement_point = PoseStamped(header=header, pose=placement_area.center)
                 placement_point = self.tf2_wrapper.transform_pose(base_frame, placement_point)
                 # set the orientation of the placement point to the orientation of the table (which is aligned with the base frame)
@@ -615,7 +658,7 @@ class PlaceObjectServer():
                 placement_point.pose.orientation = quat
                 self.add_marker(placement_point, 5000000, 0, 0, 1)
                 
-                rospy.sleep(0.02)
+                time.sleep(0.02)
 
                 safety_distance = min(0.01 + i/100, 0.04)
                 safety_distance = np.random.uniform(0.01, 0.05)
@@ -634,7 +677,7 @@ class PlaceObjectServer():
                 self.add_marker(placement_point, 5000002, 0, 1, 0)
                 
                 # Add safety by calculating the plane normal
-                plane_normal_eef_frame = self.transform_plane_normal(table_equation, eef_frame, rospy.Time.now())
+                plane_normal_eef_frame = self.transform_plane_normal(table_equation, eef_frame, self.get_clock().now().to_msg())
                 placement_point.pose.position.x = placement_point.pose.position.x + \
                     safety_distance * plane_normal_eef_frame[0]
                 placement_point.pose.position.y = placement_point.pose.position.y + \
@@ -651,28 +694,28 @@ class PlaceObjectServer():
                     g = 1
                     b = 1
                     self.add_marker(waypoint, i+7000, r, g, b)           
-                    rospy.sleep(0.02)
+                    time.sleep(0.02)
 
                 # Calculate plan to waypoint and move there
                 plan_found = self.moveit.whole_body_plan_and_go(waypoints_tr[0])
                 if not plan_found:
-                    rospy.loginfo("Placement: No plan found. Trying next pose")
+                    self.get_logger().info("Placement: No plan found. Trying next pose")
                     continue
 
                 # Check if movement was successful by checking how close the robot is
                 execution_succesful = self.moveit.current_pose_close_to_target(waypoints_tr[0], pos_tolerance=0.06)
                 if not execution_succesful:
-                    rospy.loginfo("Placement: Execution failed, Trying next pose")
+                    self.get_logger().info("Placement: Execution failed, Trying next pose")
                     continue
 
                 # Move in negative plane normal (=downwards motion)
-                plane_normal_eef_frame = self.transform_plane_normal(table_equation, eef_frame, rospy.Time.now())
+                plane_normal_eef_frame = self.transform_plane_normal(table_equation, eef_frame, self.get_clock().now().to_msg())
                 self.hsr_wrapper.move_eef_by_line((-plane_normal_eef_frame[0], -plane_normal_eef_frame[1], -plane_normal_eef_frame[2]), safety_distance)
 
                 # Open gripper
                 self.hsr_wrapper.gripper_open_hsr()
                 break
-        elif method == 'place':
+        elif self.method == 'place':
             obj = self.moveit.get_attached_objects()['object'].object
             obj_pose = PoseStamped(header = obj.header, pose = obj.pose)
             obj_pose = self.tf2_wrapper.transform_pose('hand_palm_link', obj_pose).pose
@@ -682,10 +725,10 @@ class PlaceObjectServer():
 
             self.moveit.set_support_surface('table')
             for i, placement_area in enumerate(sorted_placement_areas):
-                if i >= max_placement_attempts:
-                    rospy.logwarn(f"Placement: {i+1} poses failed. Aborting")
+                if i >= self.max_placement_attempts:
+                    self.get_logger().warn(f"Placement: {i+1} poses failed. Aborting")
                     break
-                header = Header(stamp=rospy.Time.now(), frame_id= placement_area_det_frame)
+                header = Header(stamp=self.get_clock().now().to_msg(), frame_id= placement_area_det_frame)
                 placement_point = PoseStamped(header=header, pose=placement_area.center)
                 placement_point = self.tf2_wrapper.transform_pose(base_frame, placement_point)
                 # set the orientation of the placement point to the orientation of the table (which is aligned with the base frame)
@@ -702,25 +745,8 @@ class PlaceObjectServer():
                 obj_center_pose = hand_palm_point @ hand_palm_to_obj_center
                 obj_center_pose_ros = PoseStamped(header=placement_point.header, pose=np_transform_to_ros_pose(obj_center_pose))
                 
-                # Using move_it PlaceLocation
-                # (see https://github.com/moveit/moveit_tutorials/blob/kinetic-devel/doc/pick_place/src/pick_place_tutorial.cpp)
-                placement_point = PlaceLocation()
-                placement_point.place_pose = obj_center_pose_ros
-
-                # Pre-place Approach
-                placement_point.pre_place_approach.direction.header.frame_id = base_frame
-                placement_point.pre_place_approach.direction.vector.z = -1.0
-                placement_point.pre_place_approach.min_distance = 0.095
-                placement_point.pre_place_approach.desired_distance = 0.115
-
-                # No Post-place Retreat since statemachine goes into state "GO_BACK" after placing
-
-                # Posture of eef after placing the object
-                placement_point.post_place_posture.joint_names = ['hand_motor_joint']
-                placement_point.post_place_posture.points = [JointTrajectoryPoint(positions=[1.0], time_from_start=rospy.Duration(1.0))]
-
-                self.add_marker(obj_center_pose_ros, 5000002, 0, 1, 0)
-
+                placement_point = obj_center_pose_ros
+                self.add_marker(placement_point, 5000002, 0, 1, 0)
 
                 # dunno why but moveit always thinks it failed the execution even though it looks like it worked in real life
                 # so we just ignore the return value and check whether the wrist is close to the target
@@ -728,29 +754,29 @@ class PlaceObjectServer():
                 execution_succesful = self.moveit.place('object', placement_point)
                 self.hsr_wrapper.reset_impedance_config()
                 if not execution_succesful:
-                    rospy.loginfo("Placement: Execution failed, Trying next pose")
+                    self.get_logger().info("Placement: Execution failed, Trying next pose")
                     continue
 
+                self.hsr_wrapper.gripper_open_hsr()
                 break
         else:
-            rospy.logerr(f"Placement: Invalid placement method '{method}'. Aborting. Fix the parameter /grasping_pipeline/placement/method.")
-            self.server.set_aborted()
-            return
+            self.get_logger().error(f"Placement: Invalid placement method '{self.method}'. Aborting. Fix the parameter /grasping_pipeline/placement/method.")
+            return goal_handle.abort()
 
-        rospy.sleep(2)
-            
+        time.sleep(2)
+        result = Place.Action().Result()
         if execution_succesful:
-            rospy.loginfo("Placement: Placement successful")
-            self.moveit.detach_all_objects()
-            res = PlaceActionResult()
-            self.server.set_succeeded(res)
+            self.get_logger().info("Placement: Placement successful")
+            self.moveit.detach_all_objects()            
+            goal_handle.succeed()
         else:
-            rospy.loginfo("Placement: Placement failed")
+            self.get_logger().info("Placement: Placement failed")
             self.hsr_wrapper.tts_say("I could not place the object. Switching to handover.")
-            rospy.logerr("Placement: Placement failed. Make sure that the robot is physically able to place the object")
-            rospy.logerr("(e.g. tall objects generally can't be placed into the shelf without collisions when grasped from the top)")
-            rospy.sleep(2.0)
-            self.server.set_aborted()
+            self.get_logger().error("Placement: Placement failed. Make sure that the robot is physically able to place the object")
+            self.get_logger().error("(e.g. tall objects generally can't be placed into the shelf without collisions when grasped from the top)")
+            time.sleep(2.0)
+            goal_handle.abort()
+        return result
     
     def add_marker(self, pose_goal, id=0, r=0, g=1, b=0):
         '''
@@ -771,19 +797,23 @@ class PlaceObjectServer():
         b: float
             The blue color value of the marker
             '''
-        br = tf.TransformBroadcaster()
-        br.sendTransform((pose_goal.pose.position.x, pose_goal.pose.position.y, pose_goal.pose.position.z),
-                         [pose_goal.pose.orientation.x, pose_goal.pose.orientation.y,
-                             pose_goal.pose.orientation.z, pose_goal.pose.orientation.w],
-                         rospy.Time.now(),
-                         'grasp_pose_execute',
-                         pose_goal.header.frame_id)
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = pose_goal.header.frame_id
+        t.child_frame_id = 'grasp_pose_execute'
 
-        marker_pub = rospy.Publisher(
-            '/grasping_pipeline/placement_marker', Marker, queue_size=100, latch=True)
+        t.transform.translation.x = pose_goal.pose.position.x
+        t.transform.translation.y = pose_goal.pose.position.y
+        t.transform.translation.z = pose_goal.pose.position.z
+
+        t.transform.rotation = pose_goal.pose.orientation
+
+        self.tf_broadcaster.sendTransform(t)
+        
+
         marker = Marker()
         marker.header.frame_id = pose_goal.header.frame_id
-        marker.header.stamp = rospy.Time()
+        marker.header.stamp = self.get_clock().now().to_msg()
         marker.header.stamp = pose_goal.header.stamp
         marker.ns = 'grasp_marker'
         marker.id = id
@@ -792,8 +822,8 @@ class PlaceObjectServer():
 
         q2 = [pose_goal.pose.orientation.w, pose_goal.pose.orientation.x,
               pose_goal.pose.orientation.y, pose_goal.pose.orientation.z]
-        q = tf.transformations.quaternion_about_axis(pi / 2, (0, 1, 0))
-        q = tf.transformations.quaternion_multiply(q, q2)
+        q = tf_transformations.quaternion_about_axis(pi / 2, (0, 1, 0))
+        q = tf_transformations.quaternion_multiply(q, q2)
 
         marker.pose.orientation.w = q[0]
         marker.pose.orientation.x = q[1]
@@ -811,10 +841,24 @@ class PlaceObjectServer():
         marker.color.r = r
         marker.color.g = g
         marker.color.b = b
-        marker_pub.publish(marker)
+        self.marker_pub.publish(marker)
 
+
+
+
+def main():
+    rclpy.init()
+
+    server = PlaceObjectServer()
+
+    executor = MultiThreadedExecutor()
+    executor.add_node(server)
+
+    try:
+        executor.spin()
+    finally:
+        server.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
-    rospy.init_node('place_object_server')
-    server = PlaceObjectServer()
-    rospy.spin()
+    main()

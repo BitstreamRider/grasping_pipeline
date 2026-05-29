@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-import rospy
+import rclpy
+from rclpy import qos
+from rclpy.node import Node
 from sensor_msgs.msg import Image
 from message_filters import ApproximateTimeSynchronizer, Subscriber
-from grasping_pipeline_msgs.srv import FetchImages, FetchImagesResponse
+from grasping_pipeline_msgs.srv import FetchImages
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-class SynchronizedImageFetcher:
+class SynchronizedImageFetcher(Node):
     '''
     This class provides a service that fetches synchronized RGB and Depth images from the robot.
     Instead of subscribing to the RGB and Depth topics directly, it uses ApproximateTimeSynchronizer
@@ -35,12 +38,24 @@ class SynchronizedImageFetcher:
         Depth image captured by the robot
     '''
     def __init__(self):
-        rospy.init_node('synchronized_image_fetcher')
-        self.service = rospy.Service('fetch_synchronized_images', FetchImages, self.fetch)
+        super().__init__('synchronized_image_fetcher')
+
+        self.declare_parameter('rgb_topic', '/head_rgbd_sensor/rgb/image_rect_color')
+        self.declare_parameter('depth_topic', '/head_rgbd_sensor/depth_registered/image_rect_raw')
+
+        self.srv = self.create_service(FetchImages, 'fetch_synchronized_images', self.fetch)
         self.rgb_image = None
         self.depth_image = None
 
-    def fetch(self, req):
+        rgb_topic = self.get_parameter('rgb_topic').get_parameter_value().string_value
+        depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
+
+        self.rgb_sub = Subscriber(self, Image, rgb_topic)
+        self.depth_sub = Subscriber(self, Image, depth_topic)
+        self.ats = ApproximateTimeSynchronizer([self.rgb_sub, self.depth_sub], queue_size=5, slop=2.0)
+        self.ats.registerCallback(self.callback)
+
+    def fetch(self, req, response):
         '''Fetches synchronized RGB and Depth images from the robot.
 
         After the images are captured, the service unregisters the subscribers to save bandwidth.
@@ -50,25 +65,21 @@ class SynchronizedImageFetcher:
         FetchImagesResponse
             Response containing the synchronized RGB and Depth images
         '''
-        rgb_topic = rospy.get_param('/rgb_topic')
-        depth_topic = rospy.get_param('/depth_topic')
-        rgb_sub = Subscriber(rgb_topic, Image)
-        depth_sub = Subscriber(depth_topic, Image)
 
-        ats = ApproximateTimeSynchronizer([rgb_sub, depth_sub], queue_size=5, slop=0.1)
-        ats.registerCallback(self.callback)
 
-        rospy.loginfo('Waiting for synchronized images...')
-        while self.rgb_image is None or self.depth_image is None:
-            rospy.sleep(0.05)
+        self.get_logger().info('Waiting for synchronized images...')
+        while  (self.rgb_image is None or self.depth_image is None):
+           rclpy.spin_once(self, timeout_sec=0.05)
         
-        rospy.loginfo('Synchronized Images captured!')
+        self.get_logger().info('Synchronized Images captured!')
 
         # Unregister subscribers to save bandwidth
-        rgb_sub.sub.unregister()
-        depth_sub.sub.unregister()
+        #rgb_sub.subscriber.destroy()
+        #depth_sub.subscriber.destroy()
 
-        response = FetchImagesResponse(self.rgb_image, self.depth_image)
+        response = FetchImages.Response()
+        response.rgb = self.rgb_image
+        response.depth = self.depth_image
 
         # Reset stored images for next request
         self.rgb_image = None
@@ -83,6 +94,13 @@ class SynchronizedImageFetcher:
         self.rgb_image = rgb_msg
         self.depth_image = depth_msg
 
-if __name__ == "__main__":
+def main(args=None):
+    rclpy.init(args=args)
     fetcher = SynchronizedImageFetcher()
-    rospy.spin()
+    rclpy.spin(fetcher)
+    fetcher.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

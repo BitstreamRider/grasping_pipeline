@@ -4,22 +4,25 @@
 import copy
 from math import pi
 import numpy as np
-import rospy
-import actionlib
-import tf.transformations
-import tf
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionServer
+
+import tf_transformations
+#import tf
 from v4r_util.tf2 import TF2Wrapper
 from v4r_util.alignment import align_pose_rotation, get_best_aligning_axis, Axis
 from v4r_util.util import rotmat_around_axis
-from v4r_util.conversions import ros_pose_to_np_transform, np_transform_to_ros_pose
-from moveit_wrapper import MoveitWrapper
-from hsr_wrapper import HSR_wrapper
+from v4r_util.conversions import ros_pose_to_np_transform, np_transform_to_ros_pose, point_to_vector3
+from grasping_pipeline.moveit_wrapper import MoveitWrapper
+from grasping_pipeline.hsr_wrapper import HSR_wrapper
+from grasping_pipeline.moveit_single_node import MoveItSingleNode
 from geometry_msgs.msg import Pose, PoseStamped, Transform
 from visualization_msgs.msg import Marker
-from grasping_pipeline_msgs.msg import ExecuteGraspAction, ExecuteGraspResult
+from grasping_pipeline_msgs.action import ExecuteGrasp
 
 
-class ExecuteGraspServer:
+class ExecuteGraspServer(Node):
     '''
     The ExecuteGraspServer class is a ROS action server that plans and executes a grasp pose.
     
@@ -95,18 +98,27 @@ class ExecuteGraspServer:
         '''
         Initialize and starts the action server.
         '''
-        self.tf_wrapper = TF2Wrapper()
-        rospy.loginfo("Execute grasp: Waiting for moveit")
-        self.moveit_wrapper = MoveitWrapper(self.tf_wrapper)
-        rospy.loginfo("Execute grasp: Got Moveit")
+        super().__init__('execute_grasp_server')
+
+        self.declare_parameter('safety_distance', 0.1)
+        self.safety_distance = self.get_parameter('safety_distance').value
+
+        self.tf_wrapper = TF2Wrapper(self)
+        self.get_logger().info("Execute grasp: Waiting for moveit")
+        self.moveit_wrapper = MoveItSingleNode.get(self.tf_wrapper, self)
+        self.get_logger().info("Execute grasp: Got Moveit")
         self.hsr_wrapper = HSR_wrapper()
         
-        self.server = actionlib.SimpleActionServer(
-            'execute_grasp', ExecuteGraspAction, self.execute, False)
-        self.server.start()
-        rospy.loginfo("Execute grasp: Init")
+        self._action_server = ActionServer(
+            self,
+            ExecuteGrasp,
+            'execute_grasp',
+             execute_callback=self.execute_callback
+        )
+        
+        self.get_logger().info("Execute grasp: Init")
 
-    def execute(self, goal):
+    def execute_callback(self, goal_handle):
         '''
         Tries to execute the grasp poses in the goal one by one until a successful grasp is done.
         
@@ -135,57 +147,82 @@ class ExecuteGraspServer:
             The goal containing the grasp poses to execute. Includes the grasp poses, the name of the
             object to grasp in the Moveit environment and the plane equations of the table surfaces.
         '''
-        res = ExecuteGraspResult()
+        goal = goal_handle.request
+        result = ExecuteGrasp.Result()
+
         planning_frame = self.moveit_wrapper.get_planning_frame("whole_body")
         # hrisi experiments, change back to 0.1 again afterwards
-        safety_distance = rospy.get_param("/safety_distance", default=0.2)
-        self.moveit_wrapper.clear_path_constraints()
+        safety_distance = self.safety_distance
 
-        
+        self.get_logger().info(f"Raw camera Z: {goal.grasp_poses[0].pose.position.z}")
         sorted_gasp_poses, is_top_grasp_array = self.sort_grasps_by_orientation(goal.grasp_poses)
-        rospy.logdebug(is_top_grasp_array)
+        #self.get_logger().info(str(is_top_grasp_array))
+        #self.get_logger().info(str(sorted_gasp_poses))
+        
 
         for grasp_pose, is_top_grasp in zip(sorted_gasp_poses, is_top_grasp_array):
             # assumes static scene, i.e robot didn't move since grasp pose was found
-            grasp_pose.header.stamp = rospy.Time.now()
+            grasp_pose.header.stamp = rclpy.time.Time().to_msg()
+            self.get_logger().info(f"Raw camera Z: {grasp_pose.pose.position.z}")
+            self.get_logger().info(f"Raw camera header: {grasp_pose.header.frame_id}")
+            p = grasp_pose.pose.position
+            self.get_logger().info(f"Camera coords: x={p.x}, y={p.y}, z={p.z}")
             grasp_pose = self.tf_wrapper.transform_pose(planning_frame, grasp_pose)
-        
+            self.get_logger().info(f"Grasp in base_footprint z: {grasp_pose.pose.position.z}")
+            grasp_pose.header.stamp = rclpy.time.Time().to_msg()
             approach_pose = copy.deepcopy(grasp_pose)
             q = [grasp_pose.pose.orientation.x, grasp_pose.pose.orientation.y,
                  grasp_pose.pose.orientation.z, grasp_pose.pose.orientation.w]
+            
             approach_vector = qv_mult(q, [0, 0, -1])
+            
+            self.get_logger().info(f"Approach vector: {approach_vector}")
             approach_pose.pose.position.x = approach_pose.pose.position.x + \
                 safety_distance * approach_vector[0] 
             approach_pose.pose.position.y = approach_pose.pose.position.y + \
                 safety_distance * approach_vector[1] 
             approach_pose.pose.position.z = approach_pose.pose.position.z + \
                 safety_distance * approach_vector[2]
+            approach_pose.header.stamp = rclpy.time.Time().to_msg() # Update timestamp to avoid tf exceptions
+            self.get_logger().info(f"POSE FRAME: {approach_pose.header.frame_id}")
+            self.get_logger().info(f"TARGET FRAME: {planning_frame}")
 
+            #approach_pose = self.tf_wrapper.transform_pose("odom", approach_pose)
             plan_found = self.moveit_wrapper.whole_body_plan_and_go(approach_pose)
             if not plan_found:
-                rospy.logdebug("Execute grasp: No plan found, Trying next grasp pose")
+                self.get_logger().debug("Execute grasp: No plan found, Trying next grasp pose")
                 continue
-
+            approach_pose.header.stamp = rclpy.time.Time().to_msg() # Update timestamp to avoid tf exceptions
             execution_succesful = self.moveit_wrapper.current_pose_close_to_target(approach_pose)
             if not execution_succesful:
-                rospy.logdebug("Execute grasp: Execution failed, Trying next grasp pose")
+                self.get_logger().info("Execute grasp: Execution failed, Trying next grasp pose")
                 continue
-            
+
             self.hsr_wrapper.move_eef_by_line((0, 0, 1), safety_distance)
-            rospy.sleep(0.1)
-                
-            self.hsr_wrapper.gripper_grasp_hsr(0.3)
+            # replaces rospy.sleep()
+            # timout_counter = 0
+            # while timout_counter < 200:
+            #      rclpy.spin_once(self, timeout_sec=0.1)
+            #      timout_counter += 1
+
+            self.get_logger().info("Execute grasp: hsr grasp")
+            self.hsr_wrapper.gripper_grasp_hsr(0.5)
+            # timout_counter = 0
+            # while timout_counter < 200:
+            #      rclpy.spin_once(self, timeout_sec=0.1)
+            #      timout_counter += 1
+
             if goal.grasp_object_name_moveit is not None and goal.grasp_object_name_moveit != "":
                 transform = self.get_transform_from_wrist_to_object_bottom_plane(
                     goal.grasp_object_name_moveit, 
                     goal.table_plane_equations[0], 
                     planning_frame
                 )
-                res.placement_surface_to_wrist = transform
+                result.placement_surface_to_wrist = transform
                 touch_links = self.moveit_wrapper.get_link_names(group='gripper')
-                self.moveit_wrapper.attach_object(goal.grasp_object_name_moveit, touch_links)
+                self.moveit_wrapper.attach_object(goal.grasp_object_name_moveit, touch_links=touch_links)
 
-            res.top_grasp = is_top_grasp
+            result.top_grasp = is_top_grasp
             # Move the object up to avoid collision with the table
             self.hsr_wrapper.move_eef_by_delta((0, 0, 0.05))
 
@@ -193,19 +230,20 @@ class ExecuteGraspServer:
 
             self.hsr_wrapper.gripper_grasp_hsr(0.5)
             if not self.hsr_wrapper.grasp_succesful():
-                rospy.logdebug("Execute grasp: Grasp failed")
+                self.get_logger().info("Execute grasp: Grasp failed")
                 self.moveit_wrapper.detach_all_objects()
                 self.hsr_wrapper.gripper_open_hsr()
                 # Abort as in this cases the robot often touched the object and changed its position
                 # which potentially invalidates the grasp pose
-                self.server.set_aborted(res)
-                return
-            
-            self.server.set_succeeded(res)
-            return
-        
-        rospy.logerr("Grasping failed")
-        self.server.set_aborted(res)
+                goal_handle.abort()
+                return result
+            else:
+                goal_handle.succeed()
+                return result
+
+        self.get_logger().error("Grasping failed")
+        goal_handle.abort()
+        return result
 
     def get_transform_from_wrist_to_object_bottom_plane(self, grasp_object_name_moveit, table_plane_equation, planning_frame):
         '''
@@ -237,11 +275,13 @@ class ExecuteGraspServer:
         object_pose = object_poses[grasp_object_name_moveit]
         object_pose_st = PoseStamped(pose=object_pose)
         object_pose_st.header.frame_id = planning_frame
-        object_pose_st.header.stamp = rospy.Time.now()
+        object_pose_st.header.stamp = rclpy.time.Time().to_msg() # Update timestamp to avoid tf exceptions
+
         
         # Transform the object's pose to the table frame
         plane_equation = table_plane_equation
         object_pose_table_frame = self.tf_wrapper.transform_pose(plane_equation.header.frame_id, object_pose_st)
+
         self.tf_wrapper.send_transform(object_pose_table_frame.header.frame_id, 'object_center', object_pose_table_frame.pose)
 
         object_center_to_table_distance = abs(plane_equation.x * object_pose_table_frame.pose.position.x + 
@@ -287,7 +327,7 @@ class ExecuteGraspServer:
             object_bottom_surface_base_frame.pose = np_transform_to_ros_pose(obj_transform)    
         
         transform = self.tf_wrapper.transform_pose('hand_palm_link', object_bottom_surface_base_frame)
-        transform = Transform(rotation = transform.pose.orientation, translation = transform.pose.position)
+        transform = Transform(rotation = transform.pose.orientation, translation = point_to_vector3(transform.pose.position))
 
         return transform
     
@@ -307,7 +347,8 @@ class ExecuteGraspServer:
         not_top_grasps = []
 
         for grasp in grasp_poses:
-            grasp.header.stamp = rospy.Time.now()
+            grasp.header.stamp = self.get_clock().now().to_msg()
+
 
             # Define the z-axis of the grasp in the grasp frame and the negative z-axis in the map frame
             # If the angle between the two is close to 0, the grasp is a top grasp
@@ -316,7 +357,7 @@ class ExecuteGraspServer:
 
             # Transform the z-axis of the grasp to the map frame
             grasp_in_map = self.tf_wrapper.transform_pose("map", grasp)
-            grasp_in_map_rot = tf.transformations.quaternion_matrix([grasp_in_map.pose.orientation.x, grasp_in_map.pose.orientation.y, grasp_in_map.pose.orientation.z, grasp_in_map.pose.orientation.w])[:3, :3]
+            grasp_in_map_rot = tf_transformations.quaternion_matrix([grasp_in_map.pose.orientation.x, grasp_in_map.pose.orientation.y, grasp_in_map.pose.orientation.z, grasp_in_map.pose.orientation.w])[:3, :3]
             z_axis_grasp_map = grasp_in_map_rot.dot(z_axis_grasp)
             
             # Compute the cosine of the angle between the two z-axes
@@ -346,12 +387,17 @@ def qv_mult(q, v):
     numpy array
         Rotated vector (x,y,z)
     """
-    rot_mat = tf.transformations.quaternion_matrix(q)[:3, :3]
+    rot_mat = tf_transformations.quaternion_matrix(q)[:3, :3]
     v = np.array(v)
     return rot_mat.dot(v)
 
+def main():
+    rclpy.init()
+    node = ExecuteGraspServer()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
-    rospy.init_node('execute_grasp_server')
-    server = ExecuteGraspServer()
-    rospy.spin()
+    main()
+

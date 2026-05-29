@@ -1,8 +1,11 @@
-import smach
-import rospy
+import yasmin
+import rclpy
+import rclpy
+from std_msgs.msg import String
 
 
-class UserInput(smach.State):
+
+class UserInput(yasmin.State):
     '''
     A state that waits for user input and returns the corresponding outcome.
     
@@ -14,7 +17,7 @@ class UserInput(smach.State):
     The outcome corresponding to the key entered by the user.
     '''
 
-    def __init__(self, key_outcome_description):
+    def __init__(self, node, key_outcome_description):
         '''
         Initializes the UserInput state. The key_outcome_description dictionary maps pressed keys to outcomes.
         
@@ -32,7 +35,11 @@ class UserInput(smach.State):
         This dictionary maps the 'c' key to the 'success' outcome and prints 'continue' as a description
         in the menu. The 'r' key is mapped to the 'abort' outcome and 'reset state' is printed as a description.
         '''
+        self.node = node
         self.map = key_outcome_description
+        self.data =  None
+        self.subscription = self.node.create_subscription(String, 'user_input', self.listener_callback, 10)
+        
         outcomes = []
         descriptions = []
         keys = []
@@ -40,22 +47,25 @@ class UserInput(smach.State):
         for key in key_outcome_description:
 
             if len(key) != 1:
-                rospy.logerr(
+                self.node.get_logger().error(
                     'Error while seting up UserInput: Key should only be a single character!')
-                rospy.logerr('Entry that led to error: ' +
-                             str(key) + ' : ' + str(key_outcome_description[key]))
+                self.node.get_logger().error('Entry that led to error: ' +
+                                             str(key) + ' : ' + str(key_outcome_description[key]))
 
             if len(key_outcome_description[key]) != 2:
-                rospy.logerr(
+                self.node.get_logger().error(
                     'Error while setting up UserInput: Value should have exactly two entries!')
-                rospy.logerr('Entry that led to error: ' +
-                             str(key) + ' : ' + str(key_outcome_description[key]))
+                self.node.get_logger().error('Entry that led to error: ' +
+                                             str(key) + ' : ' + str(key_outcome_description[key]))
 
             outcomes.append(key_outcome_description[key][0])
 
-        smach.State.__init__(self, outcomes=outcomes)
+        super().__init__(outcomes)
 
-    def execute(self, userdata):
+    def listener_callback(self, msg):
+        self.data = msg.data
+
+    def execute(self, blackboard: yasmin.Blackboard):
         '''Prints the menu and waits for user input. Returns the outcome corresponding to the key pressed.
 
         Returns
@@ -63,7 +73,7 @@ class UserInput(smach.State):
         str
             The outcome corresponding to the key pressed by the user.
         '''
-        rospy.loginfo('Executing state UserInput')
+        self.node.get_logger().info('Executing state UserInput')
         self.print_menu()
         return self.handle_userinput()
 
@@ -81,8 +91,12 @@ class UserInput(smach.State):
         str
             The outcome corresponding to the key pressed by the user.
         '''
-        while True:
-            user_input = input('CMD> ')
+        self.node.get_logger().info("Waiting for user_input publisher...")
+        while not self.data:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+        while rclpy.ok():
+            user_input = self.data
+            self.data = None
             if len(user_input) != 1:
                 print('Please enter only one character')
                 continue
@@ -93,7 +107,3 @@ class UserInput(smach.State):
             return self.map[char_input][0]
 
 
-if __name__ == '__main__':
-    map = {'c': ['success', 'continue'], 'r': ['abort', 'reset state']}
-    u = UserInput(map)
-    u.execute()

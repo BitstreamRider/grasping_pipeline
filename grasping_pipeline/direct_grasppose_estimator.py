@@ -1,21 +1,30 @@
 #! /usr/bin/env python3
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from rclpy.action import ActionClient
+from rclpy.qos import qos_profile_sensor_data
+
 import numpy as np
 from copy import deepcopy
-import ros_numpy
+
 from cv_bridge import CvBridge
-import rospy
-from actionlib import SimpleActionClient
-from actionlib_msgs.msg import GoalStatus
-from robokudo_msgs.msg import GenericImgProcAnnotatorAction, GenericImgProcAnnotatorGoal
-from grasping_pipeline_msgs.srv import CallDirectGraspPoseEstimator, CallDirectGraspPoseEstimatorResponse
+
 from sensor_msgs.msg import CameraInfo
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker
+
+from grasping_pipeline_msgs.srv import CallDirectGraspPoseEstimator
+from robokudo_msgs.action import GenericImgProcAnnotator
+
 from v4r_util.depth_pcd import convert_np_depth_img_to_o3d_pcd
 from v4r_util.bb import get_minimum_oriented_bounding_box, o3d_bb_to_ros_bb_stamped
-from tf.transformations import (quaternion_about_axis, quaternion_multiply)
 
-class DirectGraspposeEstimatorCaller:
+from tf_transformations import quaternion_about_axis, quaternion_multiply
+
+
+class DirectGraspposeEstimatorCaller(Node):
     '''Calls a service that directly estimates the grasppose.
     
     Calls a service that directly estimates the grasppose without needing an 
@@ -69,13 +78,75 @@ class DirectGraspposeEstimatorCaller:
     grasp_object_name: str
         The name of the object to grasp.
     '''
+    # TODO: remove from comments in code after documenting in thesis
     def __init__(self):
+        super().__init__('grasppose_estimator')
+
         self.bridge = CvBridge()
-        self.srv = rospy.Service('call_direct_grasppose_estimator', CallDirectGraspPoseEstimator , self.execute)
-        self.cam_info = rospy.wait_for_message(rospy.get_param('/cam_info_topic'), CameraInfo)
-        self.marker_pub = rospy.Publisher('/grasping_pipeline/grasp_marker', Marker, queue_size=10)
-    
-    def execute(self, req):
+
+        self.declare_parameter('cam_info_topic', '/hsrb/head_rgbd_sensor/depth_registered/camera_info')
+        self.declare_parameter('grasppoint_estimator_topic', '/pose_estimator/find_grasppose_haf')
+        self.declare_parameter('timeout_duration','/grasping_pipeline/timeout_duration')
+
+        self.cam_topic = self.get_parameter('cam_info_topic').value
+        self.action_topic = self.get_parameter('grasppoint_estimator_topic').value
+        self.timeout = float(self.get_parameter('timeout_duration').value)
+
+        # replaces the old wait_for_message in rospy to get the camera info, since we need the camera info to convert the depth image 
+        # to a point cloud to extract the 3D bounding boxes of the objects
+        self.cam_info = None
+        self.wait_for_camera_info()
+
+        # Service
+        self.srv = self.create_service(
+            CallDirectGraspPoseEstimator,
+            'call_direct_grasppose_estimator',
+            self.execute
+        )
+
+         # Publisher
+        self.marker_pub = self.create_publisher(
+            Marker,
+            '/grasping_pipeline/grasp_marker',
+            10
+        )
+
+        # Action client
+        self.action_client = ActionClient(
+            self,
+            GenericImgProcAnnotator,
+            self.action_topic
+        )
+
+    '''
+     Waits for the camera info message to be received and stores it in the cam_info attribute.
+        This function replaces the old rospy.wait_for_message for the camera info, since we need the camera info to convert the depth image
+    '''    
+    def wait_for_camera_info(self):
+        self.cam_info = None
+
+        def cb(msg):
+            self.cam_info = msg
+
+        self.create_subscription(
+            CameraInfo,
+            self.cam_topic,
+            cb,
+            qos_profile_sensor_data
+        )
+
+        self.get_logger().info(f'Waiting for CameraInfo on {self.cam_topic}...')
+
+        while rclpy.ok() and self.cam_info is None:
+            rclpy.spin_once(self, timeout_sec=0.1)
+
+        if self.cam_info is None:
+            raise RuntimeError('CameraInfo not received')
+
+        self.get_logger().info('CameraInfo received')
+
+
+    def execute(self, request, response):
         '''
         Calls the direct grasppose estimator service and returns the grasppose.
 
@@ -88,7 +159,7 @@ class DirectGraspposeEstimatorCaller:
 
         Parameters
         ----------
-        req: grasping_pipeline_msgs.srv.CallDirectGraspPoseEstimatorRequest
+        request: grasping_pipeline_msgs.srv.CallDirectGraspPoseEstimatorRequest
             The request to the service. Contains the RGB image, depth image, mask detections,
             bounding box detections, class names, and (optionally) the name of the object to grasp.
 
@@ -104,74 +175,84 @@ class DirectGraspposeEstimatorCaller:
             The response of the service. Contains the name of the object to grasp, the bounding box
             of the object, and the estimated graspposes.
         '''
-        topic = rospy.get_param('/grasping_pipeline/grasppoint_estimator_topic')
-        timeout = rospy.get_param('/grasping_pipeline/timeout_duration')
+        
 
-        grasppose_est = SimpleActionClient(topic, GenericImgProcAnnotatorAction)
+        self.get_logger().info(f'Waiting for direct-grasppose-estimator server with topic: {self.action_topic}')
+        if not self.action_client.wait_for_server(timeout_sec=self.timeout):
+            self.get_logger().error(f'Connection to direct-grasppose_estimator \'{self.action_topic}\' timed out!')
+            return response
 
-        rospy.loginfo('Waiting for direct-grasppose-estimator server with topic: %s' % topic)
-        if not grasppose_est.wait_for_server(timeout=rospy.Duration(timeout)):
-            rospy.logerr(f'Connection to direct-grasppose_estimator \'{topic}\' timed out!')
-            raise rospy.ServiceException
-        rospy.loginfo('Connected to direct-grasppose-estimator server')
+        self.get_logger().info('Connected to direct-grasppose-estimator server')
 
-        bbs_3D = self.get_3D_bbs(req.depth, req.mask_detections, req.bb_detections)
+        bbs_3D = self.get_3D_bbs(request.depth, request.mask_detections, request.bb_detections)
         center_poses = self.get_bb_center_poses(bbs_3D)
         
-        if req.object_to_grasp != None and req.object_to_grasp != '':
-            if req.object_to_grasp in req.class_names:
-                rospy.loginfo(f'Object to grasp specified. Will grasp specified object {req.object_to_grasp}')
-                object_idx = req.class_names.index(req.object_to_grasp)               
+        if request.object_to_grasp != None and request.object_to_grasp != '':
+            if request.object_to_grasp in request.class_names:
+                self.get_logger().info(f'Object to grasp specified. Will grasp specified object {request.object_to_grasp}')
+                object_idx = request.class_names.index(request.object_to_grasp)               
             else:
-                rospy.logwarn(f'Object to grasp {goal.object_to_grasp} not detected. Aborting')
-                raise rospy.ServiceException
+                self.get_logger().warn(f'Object to grasp {request.object_to_grasp} not detected. Aborting')
+                return response
         else:
-            rospy.loginfo('No object to grasp specified. Will grasp closest object')
+            self.get_logger().info('No object to grasp specified. Will grasp closest object')
             object_idx = self.get_closest_object(center_poses)
-            rospy.loginfo(f'Closest object to camera is {req.class_names[object_idx]}')
+            self.get_logger().info(f'Closest object to camera is {request.class_names[object_idx]}')
         
         object_mask, object_bb = [], []
-        if len(req.mask_detections) > 0:
-            object_mask = [req.mask_detections[object_idx]]
-        if len(req.bb_detections) > 0:
-            object_bb = [req.bb_detections[object_idx]]
+        if len(request.mask_detections) > 0:
+            object_mask = [request.mask_detections[object_idx]]
+        if len(request.bb_detections) > 0:
+            object_bb = [request.bb_detections[object_idx]]
         if len(object_mask) <= 0 and len(object_bb) <= 0:
-            rospy.logerr('No mask or bb detections provided! Need at least either one to proceed!')
-            raise rospy.ServiceException
+            self.get_logger().error('No mask or bb detections provided! Need at least either one to proceed!')
+            return response
         
         goal = GenericImgProcAnnotatorGoal(
-            rgb=req.rgb, 
-            depth=req.depth, 
+            rgb=request.rgb, 
+            depth=request.depth, 
             mask_detections=object_mask, 
             bb_detections=object_bb, 
-            class_names=[req.class_names[object_idx]]
+            class_names=[request.class_names[object_idx]]
         )
 
-        rospy.logdebug('Sending goal to direct-grasppose-estimator')
-        grasppose_est.send_goal(goal)
-        rospy.logdebug('Waiting for direct grasppose estimation results')
-        goal_finished = grasppose_est.wait_for_result(rospy.Duration(timeout))
-        if not goal_finished:
-            rospy.logerr('Direct grasppose Estimator didn\'t return results before timing out!')
-            raise rospy.ServiceException
-        graspposes = grasppose_est.get_result()
-        status = grasppose_est.get_state()
+        self.get_logger().debug('Sending goal to direct-grasppose-estimator')
+        send_goal_future = self.action_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, send_goal_future)
 
-        if status != GoalStatus.SUCCEEDED or len(graspposes.pose_results) <= 0:
-            rospy.logerr('Grasppose Estimator failed to estimate poses!')
-            raise rospy.ServiceException
-        rospy.loginfo(f'Estimated the grasppose of {len(graspposes.class_names)} objects.')
+        
+        goal_handle = send_goal_future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Grasppose Estimator rejected the goal!')
+            return response
 
+        self.get_logger().debug('Waiting for direct grasppose estimation results')
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future)
+        
+        result = result_future.result()
+        if result is None or len(result.result.pose_results) <= 0:
+            self.get_logger().error('Grasppose Estimator failed!')
+            return response
+        
+        graspposes = result.result
+        self.get_logger().info(f'Estimated the grasppose of {len(graspposes.class_names)} objects.')
+        
         assert len(graspposes.pose_results) == 1, 'Expected only one grasppose result, but got more than one!'
 
-        res = CallDirectGraspPoseEstimatorResponse()
-        res.grasp_object_name = req.class_names[object_idx]
-        res.grasp_object_bb = bbs_3D[object_idx]
-        res.grasp_poses = [PoseStamped(header=req.depth.header, pose=graspposes.pose_results[0])]
-        self.add_bb_marker(res.grasp_object_bb)
-        self.add_marker(res.grasp_poses[0])
+        response.grasp_object_name = request.class_names[object_idx]
+        response.grasp_object_bb = bbs_3D[object_idx]
+        response.grasp_poses = [
+            PoseStamped(
+                header=request.depth.header,
+                pose=graspposes.pose_results[0]
+            )
+        ]
 
-        return res
+        self.add_bb_marker(response.grasp_object_bb)
+        self.add_marker(response.grasp_poses[0])
+
+        return response
 
     def get_bb_center_poses(self, bbs):
         '''Extracts the center poses of the bounding boxes.
@@ -399,7 +480,12 @@ class DirectGraspposeEstimatorCaller:
         self.marker_pub.publish(marker)
 
 
+def main():
+    rclpy.init()
+    node = DirectGraspposeEstimatorCaller()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
 if __name__ == '__main__':
-    node = rospy.init_node('grasppose_estimator')
-    est = DirectGraspposeEstimatorCaller()
-    rospy.spin()
+    main()

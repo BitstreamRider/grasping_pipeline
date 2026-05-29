@@ -1,30 +1,20 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>grasping_pipeline</name>
   <version>0.0.0</version>
-  <description>The grasping_pipeline package</description>
+  <description>TODO: Package description</description>
+  <maintainer email="stefan.lieungurean@gmail.com">root</maintainer>
+  <license>TODO: License declaration</license>
 
-  <maintainer email="markus.j.leitner@tuwien.ac.at">Markus Leitner</maintainer>
+  <depend>rclpy</depend>
 
-  <license>BSD</license>
-  
-  <depend>actionlib</depend>
-  <depend>actionlib_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>hsrb_interface_py</depend>
-  <depend>haf_grasping</depend>
-  <depend>sensor_msgs</depend>
-  <depend>vision_msgs</depend>
-  <depend>table_plane_extractor</depend>
-  <depend>object_detector_msgs</depend>
-  <depend>handover</depend>
-  <depend>v4r_util</depend>
-  <depend>message_filters</depend>
-  <depend>tmc_geometric_shapes_msgs</depend>
-  <depend>tmc_placement_area_detector</depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>grasping_pipeline_msgs</build_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <buildtool_depend>catkin</buildtool_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

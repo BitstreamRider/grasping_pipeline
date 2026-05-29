@@ -1,0 +1,13 @@
+sensors:
+  - head_rgbd_sensor
+
+head_rgbd_sensor:
+  sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
+  point_cloud_topic: /head_rgbd_sensor/depth_registered/rectified_points
+  max_range: 5.0
+  point_subsample: 1
+  padding_offset: 0.1
+  padding_scale: 1.0
+  queue_size: 100
+  max_update_rate: 1.0
+  filtered_cloud_topic: /head_rgbd_sensor/depth_registered/filtered_cloud

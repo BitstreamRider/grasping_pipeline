@@ -1,16 +1,23 @@
 #! /usr/bin/env python3
+import threading
+
 import numpy as np
 import cv2
-import rospy
-import ros_numpy
+import rclpy
+from rclpy.node import MutuallyExclusiveCallbackGroup, Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
+from rclpy.action import ActionClient
+from rclpy.duration import Duration
+from rclpy.task import Future
+from cv_bridge import CvBridge
 import matplotlib.pyplot as plt
-from actionlib import SimpleActionClient
 from actionlib_msgs.msg import GoalStatus
-from robokudo_msgs.msg import GenericImgProcAnnotatorAction, GenericImgProcAnnotatorGoal
-from grasping_pipeline_msgs.srv import CallObjectDetector, CallObjectDetectorResponse
+from robokudo_msgs.action import GenericImgProcAnnotator
+from grasping_pipeline_msgs.srv import CallObjectDetector
 from sensor_msgs.msg import Image, RegionOfInterest
+from rclpy.executors import MultiThreadedExecutor
 
-class CallObjectDetectorService:
+class CallObjectDetectorService(Node):
     '''Service that calls the object detector and returns the detected objects.
 
     This service calls the object detector server and returns the detected objects.
@@ -59,12 +66,28 @@ class CallObjectDetectorService:
     '''
 
     def __init__(self):
-        self.srv = rospy.Service('call_object_detector', CallObjectDetector , self.execute)
-        self.label_image_pub = rospy.Publisher('/grasping_pipeline/obj_det_label_image', Image, queue_size=1, latch=True)
-        self.bb_image_pub = rospy.Publisher('/grasping_pipeline/obj_det_bb_image', Image, queue_size=1, latch=True)
-        rospy.loginfo('Known Object Detector Service initialized')
+        super().__init__('object_detector')
+
+        qos_profile = QoSProfile(
+            depth=1,
+            history=HistoryPolicy.KEEP_LAST,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        ) 
+        self.cbgroup = MutuallyExclusiveCallbackGroup()
+        self.declare_parameter('object_detector_topic','/object_detector/yolov8')
+        self.declare_parameter('timeout_duration', 10.0) #change back to 40.0
+
+        self.topic = self.get_parameter('object_detector_topic').value
+        self.timeout = self.get_parameter('timeout_duration').value
+
+        self.srv = self.create_service(CallObjectDetector, 'call_object_detector', self.execute)
+        self.label_image_pub = self.create_publisher(Image, '/grasping_pipeline/obj_det_label_image', qos_profile)
+        self.bb_image_pub = self.create_publisher(Image, '/grasping_pipeline/obj_det_bb_image', qos_profile)
+        self.obj_det = ActionClient(self, GenericImgProcAnnotator, self.topic, callback_group=self.cbgroup)
+        self.bridge = CvBridge()
+        self.get_logger().info('Known Object Detector Service initialized')
     
-    def execute(self, req):
+    async def execute(self, req, response):
         '''Calls the object detector and returns the detected objects.
 
         This function calls the object detector server and returns the detected objects.
@@ -89,66 +112,105 @@ class CallObjectDetectorService:
             Response containing the detected objects. The response contains the masks, bounding boxes,
             class names and confidences for the detected objects.
         '''
-        topic = rospy.get_param('/grasping_pipeline/object_detector_topic')
-        timeout = rospy.get_param('/grasping_pipeline/timeout_duration')
+        
 
-        obj_det = SimpleActionClient(topic, GenericImgProcAnnotatorAction)
+        self.get_logger().info('Waiting for object detector server with topic: %s' % self.topic)
+        if not self.obj_det.wait_for_server(timeout_sec=self.timeout):
+            self.get_logger().error(f'Connection to object detector \'{self.topic}\' timed out!')
+            return CallObjectDetector.Response()
 
-        rospy.loginfo('Waiting for object detector server with topic: %s' % topic)
-        if not obj_det.wait_for_server(timeout=rospy.Duration(timeout)):
-            rospy.logerr(f'Connection to object detector \'{topic}\' timed out!')
-            raise rospy.ServiceException
-        rospy.loginfo('Connected to object detector server')
-
-        goal = GenericImgProcAnnotatorGoal()
+        self.get_logger().info('Connected to object detector server')
+       
+        goal = GenericImgProcAnnotator.Goal()
         goal.rgb = req.rgb
         goal.depth = req.depth
-
-        rospy.logdebug('Sending goal to object detector')
-        obj_det.send_goal(goal)
-        rospy.logdebug('Waiting for object detection results')
-        goal_finished = obj_det.wait_for_result(rospy.Duration(timeout))
-        if not goal_finished:
-            rospy.logerr('Object Detector didn\'t return results before timing out!')
-            raise rospy.ServiceException
-        detection_result = obj_det.get_result()
-        server_state = obj_det.get_state()
+        self.get_logger().debug('Sending goal to object detector')
+        future = self.obj_det.send_goal_async(goal)
+        self.get_logger().debug('Waiting for object detection results')
+        await future
+        #self.result, self.status = future.add_done_callback(self.goal_response_callback)
+        #rclpy.spin_until_future_complete(self, future, timeout_sec=self.timeout)
         
-        if server_state != GoalStatus.SUCCEEDED or len(detection_result.class_names) <= 0:
-            rospy.logwarn('Object Detector failed to detect objects!')
+        goal_handle = future.result()
+        if goal_handle is None:
+            self.get_logger().error("Goal handle is None, server did not respond")
+            return CallObjectDetector.Response()
+        
+        if not goal_handle.accepted:
+            self.get_logger().error("Goal rejected")
+            return CallObjectDetector.Response()
+
+        self.get_logger().info("Goal accepted")
+
+        #Request result
+        self.result_future = await goal_handle.get_result_async()
+        #rclpy.spin_until_future_complete(self, result_future, timeout_sec=self.timeout)
+
+
+        
+        if self.result_future.status != GoalStatus.SUCCEEDED + 1 or len(self.result_future.result.class_names) <= 0:
+            self.get_logger().warn(f"Object Detector failed to detect objects! status: {self.result_future.status} len: {len(self.result_future.result.class_names)} ")
             # return empty response if no objects were detected
-            return CallObjectDetectorResponse()
-        rospy.loginfo(f'Detected {len(detection_result.class_names)} objects.')
+            return CallObjectDetector.Response()
+     
+            
+        self.get_logger().info(f'Detected {len(self.result_future.result.class_names)} objects.')
+        np_rgb = self.bridge.imgmsg_to_cv2(req.rgb)
 
-        np_rgb = ros_numpy.numpify(req.rgb)
-
-        valid_label_image = check_label_img(detection_result.image)
+        valid_label_image = check_label_img(self, self.result_future.result.image)
         if valid_label_image:
-            label_image_np = ros_numpy.numpify(detection_result.image)
+            label_image_np = self.bridge.imgmsg_to_cv2(self.result_future.result.image)
             label_image_vis = visualize_label_image(np_rgb, label_image_np)
-            self.label_image_pub.publish(ros_numpy.msgify(Image, label_image_vis, encoding='rgb8'))
+            self.label_image_pub.publish(self.bridge.cv2_to_imgmsg(label_image_vis, encoding='rgb8'))
 
-            if len(detection_result.bounding_boxes) <= 0:
+            if len(self.result_future.result.bounding_boxes) <= 0:
                 bbs = self.convert_label_img_to_2D_BB(label_image_np)
-                detection_result.bounding_boxes = bbs
+                self.result_future.result.bounding_boxes = bbs
 
-        if not valid_label_image and len(detection_result.bounding_boxes) <= 0:
-            rospy.logerr('No valid label image and no bounding boxes detected! Need at least one of them!')
-            raise rospy.ServiceException
+        if not valid_label_image and len(self.result_future.result.bounding_boxes) <= 0:
+            self.get_logger().error('No valid label image and no bounding boxes detected! Need at least one of them!')
+            return CallObjectDetector.Response()
 
-        bb_image_np = visualize_rois(np_rgb, detection_result.bounding_boxes, detection_result.class_names)
-        self.bb_image_pub.publish(ros_numpy.msgify(Image, bb_image_np, encoding='rgb8'))
-
-        res = CallObjectDetectorResponse()
+        bb_image_np = visualize_rois(np_rgb, self.result_future.result.bounding_boxes, self.result_future.result.class_names)
+        self.bb_image_pub.publish(self.bridge.cv2_to_imgmsg(bb_image_np, encoding='rgb8'))
+        res = CallObjectDetector.Response()
         if valid_label_image:
-            res.mask_detections = self.split_label_image_into_masks_ros(detection_result.image)
-        res.bb_detections = detection_result.bounding_boxes
-        res.class_names = detection_result.class_names
-        res.class_confidences = detection_result.class_confidences
-
-        rospy.set_param('/grasping_pipeline/object_detection/class_names', res.class_names)
+            res.mask_detections = self.split_label_image_into_masks_ros(self.result_future.result.image)
+        res.bb_detections = self.result_future.result.bounding_boxes
+        res.class_names = self.result_future.result.class_names
+        res.class_confidences = self.result_future.result.class_confidences
         
         return res
+        
+    def goal_response_callback(self, future):
+        goal_handle = future.result()
+        if goal_handle is None:
+            self.get_logger().error("Goal handle is None, server did not respond")
+            return
+        
+        if not goal_handle.accepted:
+            self.get_logger().error("Goal rejected")
+            return
+
+        self.get_logger().info("Goal accepted")
+        
+        #Request result
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self.action_result_callback)
+
+    def action_result_callback(self, future):
+        result = future.result().result
+        status = future.result().status
+
+        self.get_logger().info("Got result")
+        if status != GoalStatus.STATUS_SUCCEEDED or len(result.class_names) <= 0:
+            self.get_logger().warn("Object Detector failed to detect objects!")
+            return
+        return result, status
+        
+        
+
+        
     
     def convert_label_img_to_2D_BB(self, label_img):
         ''' Converts the label image to 2D bounding boxes.
@@ -201,11 +263,11 @@ class CallObjectDetectorService:
             List of masks for each detected object. The background pixels have a value of
             0 and the object pixels have a value of != 0.
         '''
-        label_image_np = ros_numpy.numpify(label_image)
+        label_image_np = self.bridge.imgmsg_to_cv2(label_image)
         masks_np = self.split_label_image_into_masks_np(label_image_np)
         masks_ros = []
         for mask_np in masks_np:
-            mask_ros = ros_numpy.msgify(Image, mask_np, encoding='8UC1')
+            mask_ros = self.bridge.cv2_to_imgmsg(mask_np, encoding='8UC1')
             masks_ros.append(mask_ros)
         return masks_ros
 
@@ -306,7 +368,7 @@ def visualize_label_image(image, label_image):
         image_copy[mask] = color
     return image_copy
 
-def check_label_img(label_img):
+def check_label_img(self, label_img):
     '''
     Checks the consistency of the label image.
     
@@ -325,19 +387,26 @@ def check_label_img(label_img):
         If the label image is inconsistent.
     '''
     if (label_img.height < 1 or label_img.width < 1):
-        rospy.loginfo("No label image passed!")
+        self.get_logger().info("No label image passed!")
         return False
 
     # Expect signed image with -1 to indicate pixels without object
     supported_encodings = ['8SC1', '16SC1', '32SC1']
     if(label_img.encoding not in supported_encodings):
-        rospy.logerr(f"Label Image Encoding not supported: Got {label_img.encoding = } but has to be one off {supported_encodings}")
+        self.get_logger().error(f"Label Image Encoding not supported: Got {label_img.encoding = } but has to be one off {supported_encodings}")
         return False
     return True
 
-if __name__ == '__main__':
-    node = rospy.init_node('object_detector')
-    obj_det = CallObjectDetectorService()
-    rospy.spin()
+def main(args=None):
+    rclpy.init(args=args)
+    node = CallObjectDetectorService()
+    #executor = MultiThreadedExecutor()
 
-    
+    #executor.add_node(node)
+    #executor.spin()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

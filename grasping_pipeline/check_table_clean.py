@@ -1,29 +1,34 @@
-import rospy
-import smach
-from hsr_wrapper import HSR_wrapper
+import rclpy
+import yasmin
+from grasping_pipeline.hsr_wrapper import HSR_wrapper
 from sensor_msgs.msg import CameraInfo
 import numpy as np
 from v4r_util.conversions import quat_to_rot_mat, bounding_box_to_bounding_box_stamped
 import cv2
+from cv_bridge import CvBridge
 from sensor_msgs.msg import RegionOfInterest
 from v4r_util.tf2 import TF2Wrapper
-import ros_numpy
 
-class RemoveNonTableObjects(smach.State):
+
+class RemoveNonTableObjects(yasmin.State):
     '''
     Checks whether any objects remain on the table.
     '''
 
-    def __init__(self):
-        smach.State.__init__(self, outcomes=['succeeded', 'failed'], input_keys=['table_bbs', 'bb_detections', 'mask_detections', 'class_names'], output_keys=['bb_detections', 'mask_detections', 'class_names'])
+    def __init__(self, node):
+        super().__init__(['succeeded', 'failed'])
+        self.node = node
         self.hsr_wrapper = HSR_wrapper()
-        self.tf_wrapper = TF2Wrapper()
+        self.tf_wrapper = TF2Wrapper(self.node)
+        self.camera_info = None
+        self._setup_camera_info_subscription()
+        self.bridge = CvBridge()
     
     def project_3d_bb_to_2d(self, bb_3d, camera_info):
         if camera_info.distortion_model != 'plumb_bob':
             raise ValueError('This function only supports plumb_bob distortion model.')
-        camera_matrix = np.array(camera_info.K, np.float32).reshape(3, 3)
-        dist_coeffs = np.array(camera_info.D, np.float32)
+        camera_matrix = np.array(camera_info.k, np.float32).reshape(3, 3)
+        dist_coeffs = np.array(camera_info.d, np.float32)
         
         # transform each corner of the 3D bounding box as a 3D point
         x_c = bb_3d.center.position.x
@@ -73,7 +78,7 @@ class RemoveNonTableObjects(smach.State):
         for i, bb in enumerate(bbs):
             overlap_area = self.calculate_overlap(bb, table_bb)
             detection_area = bb.width * bb.height
-            if overlap_area / detection_area > 0.5:
+            if overlap_area / detection_area > 0.1:
                 idxs_to_keep.append(i)
         return idxs_to_keep
             
@@ -121,11 +126,16 @@ class RemoveNonTableObjects(smach.State):
     def filter_masks_on_table(self, masks, table_mask):
         idxs_to_keep = []
         for i, mask in enumerate(masks):
-            intersection = mask & table_mask
+            self.node.get_logger().warning(f"mask unique: {np.unique(mask)}")
+            self.node.get_logger().warning(f"table_mask unique: {np.unique(table_mask)}")
+            self.node.get_logger().warning(f"mask.shape={mask.shape}, table_mask.shape={table_mask.shape}")
+            intersection =  mask & table_mask
             area = np.sum(intersection)
+            table_area = np.sum(table_mask)
             total_area = np.sum(mask)
-            if area / total_area > 0.5:
+            if table_area / total_area > 0.1:
                 idxs_to_keep.append(i)
+            self.node.get_logger().warning(f"mask {i}: overlap={area}, table_total={table_area}, ratio={area/table_area:.2f}")
         return idxs_to_keep
         
     def filter_table_detection(self, class_names):
@@ -134,33 +144,61 @@ class RemoveNonTableObjects(smach.State):
             if 'table' in class_name:
                 table_idxs.append(i)
         return table_idxs
+    
+    def _setup_camera_info_subscription(self):
+        '''Setup subscription to camera info topic'''
+        if not self.node.has_parameter('cam_info_topic'):
+            self.node.declare_parameter('cam_info_topic', '/head_rgbd_sensor/depth_registered/camera_info')
+        cam_info_topic = self.node.get_parameter('cam_info_topic').value
+        self.camera_info_subscription = self.node.create_subscription(
+            CameraInfo,
+            cam_info_topic,
+            self._camera_info_callback,
+            10
+        )
+    
+    def _camera_info_callback(self, msg: CameraInfo) -> None:
+        '''Store the latest camera info'''
+        self.camera_info = msg
 
-    def execute(self, userdata):
-        cam_info_topic = rospy.get_param('/cam_info_topic')
-        camera_info = rospy.wait_for_message(cam_info_topic, CameraInfo)
-
-        if len(userdata.table_bbs.boxes) == 0:
-            rospy.logwarn('No table bounding box detected.')
+    def execute(self, blackboard : yasmin.Blackboard):
+        # Wait for camera info with timeout
+        timeout_count = 0
+        while self.camera_info is None and timeout_count < 150:  # 15 seconds at 10Hz
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            timeout_count += 1
+        
+        if self.camera_info is None:
+            self.node.get_logger().error('Timeout waiting for camera info')
             return 'failed'
         
-        if len(userdata.bb_detections) == 0 and len(userdata.mask_detections) == 0:
+        camera_info = self.camera_info
+
+        if len(blackboard["table_bbs"].boxes) == 0:
+            self.node.get_logger().warning('No table bounding box detected.')
+            return 'failed'
+        
+        if len(blackboard["bb_detections"]) == 0 and len(blackboard["mask_detections"]) == 0:
             return 'succeeded'
         
-        table_bb = userdata.table_bbs.boxes[0]
-        table_bb = bounding_box_to_bounding_box_stamped(table_bb, userdata.table_bbs.header.frame_id, userdata.table_bbs.header.stamp)
+        table_bb = blackboard["table_bbs"].boxes[0]
+        
+        table_bb = bounding_box_to_bounding_box_stamped(table_bb, blackboard["table_bbs"].header.frame_id, blackboard["table_bbs"].header.stamp)
         table_bb_camera_frame = self.tf_wrapper.transform_bounding_box(table_bb, camera_info.header.frame_id)
         table_bb_2d, table_mask = self.project_3d_bb_to_2d(table_bb_camera_frame, camera_info)
+        self.node.get_logger().warning(f"table_bb original frame = {table_bb.header.frame_id}")
+        self.node.get_logger().warning(f"table_bb_camera_frame = {table_bb_camera_frame.header.frame_id}")
 
-        mask_detections = userdata.mask_detections
-        bb_detections = userdata.bb_detections
-        class_names = userdata.class_names
-
+        mask_detections = blackboard["mask_detections"]
+        bb_detections = blackboard["bb_detections"]
+        class_names = blackboard["class_names"]
+        
         table_idxs = self.filter_table_detection(class_names)
         # use masks if available, otherwise use bounding boxes
         if len(mask_detections) != 0:
             if len(mask_detections) != len(class_names):
                 raise ValueError(f'The number of masks and class names must be the same. {len(mask_detections) = }, {len(class_names) = }')
-            np_masks = [ros_numpy.numpify(mask) for mask in mask_detections]
+            np_masks = [self.bridge.imgmsg_to_cv2(mask) for mask in mask_detections]
             idxs_to_keep = self.filter_masks_on_table(np_masks, table_mask)
         elif len(bb_detections) != 0:
             if len(bb_detections) != len(class_names):
@@ -178,26 +216,26 @@ class RemoveNonTableObjects(smach.State):
         if len(bb_detections) != 0:
             bb_detections = [bb_detections[i] for i in idxs_to_keep]
         
-        rospy.logwarn(f'{objects_left} objects left on the table.')
-        rospy.logwarn(f'{userdata.class_names = }, {idxs_to_keep = }')
+        self.node.get_logger().warning(f'{objects_left} objects left on the table.')
+        self.node.get_logger().warning(f'{blackboard["class_names"] = }, {idxs_to_keep = }')
         
-        userdata.bb_detections = bb_detections
-        userdata.mask_detections = mask_detections
-        userdata.class_names = class_names
+        blackboard["bb_detections"] = bb_detections
+        blackboard["mask_detections"] = mask_detections
+        blackboard["class_names"] = class_names
         return 'succeeded'
 
 
-class CheckTableClean(smach.State):
+class CheckTableClean(yasmin.State):
     '''
     Checks whether any objects remain on the table.
     '''
 
     def __init__(self):
-        smach.State.__init__(self, outcomes=['clean', 'not_clean'], input_keys=['bb_detections', 'mask_detections', 'class_names'])
+        super().__init__(['clean', 'not_clean'])
         self.hsr_wrapper = HSR_wrapper()
 
-    def execute(self, userdata):
-        objects_left = max(len(userdata.bb_detections), len(userdata.mask_detections))
+    def execute(self, blackboard : yasmin.Blackboard):
+        objects_left = max(len(blackboard["bb_detections"]), len(blackboard["mask_detections"]))
         
         if objects_left == 0:
             self.hsr_wrapper.tts_say('The table is clean. I am finally done.')

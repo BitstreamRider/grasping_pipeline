@@ -2,15 +2,17 @@
 import os
 import sys
 import copy
-import rospy
-import ros_numpy
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
+from cv_bridge import CvBridge
 import open3d as o3d
 from v4r_util.rviz_visualization.image_visualization import PoseEstimationVisualizer
 from v4r_util.conversions import ros_poses_to_np_transforms
 from sensor_msgs.msg import Image, CameraInfo
-from object_detector_msgs.srv import VisualizePoseEstimation, VisualizePoseEstimationResponse
+from object_detector_msgs.srv import VisualizePoseEstimation
 
-class PoseEstimationVisualizerRos(PoseEstimationVisualizer):
+class PoseEstimationVisualizerRos(Node, PoseEstimationVisualizer):
     
     def __init__(
         self, 
@@ -43,26 +45,38 @@ class PoseEstimationVisualizerRos(PoseEstimationVisualizer):
         service_name: str
             name of the service that should be exposed, only needed if expose_service is True
         '''
+        super().__init__('pose_estimation_visualizer')
+
+        
+        qos_profile = QoSProfile(
+            depth=10,
+            history=HistoryPolicy.KEEP_LAST,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        )
+        self.declare_parameter('dataset', 'ycb_bop')
+        self.declare_parameter('result_visualization_topic', '/pose_estimator/result_visualization')
+        self.declare_parameter('result_visualization_service_name', '/pose_estimator/result_visualization_service')
+        self.bridge = CvBridge()
         self.image_width = image_width
         self.image_height = image_height
         self.intrinsics_matrix = intrinsics_matrix
         self.meshes = self.load_meshes(model_dir)
-        rospy.loginfo(f'PoseEstimVis: Loaded {len(self.meshes)} meshes')
+        self.get_logger().info(f'PoseEstimVis: Loaded {len(self.meshes)} meshes')
 
-        self.image_pub = rospy.Publisher(topic, Image, queue_size=10, latch=True)
+        self.image_pub = self.create_publisher(Image, topic, qos_profile)
         if expose_service:
-            rospy.loginfo(f'PoseEstimVis: Exposing service {service_name}')
+            self.get_logger().info(f'PoseEstimVis: Exposing service {service_name}')
             assert service_name is not None
-            self.service = rospy.Service(
-                service_name, 
-                VisualizePoseEstimation, 
+            self.service = self.create_service(
+                VisualizePoseEstimation,
+                service_name,
                 self.service_callback
-                )
+            )
 
         self.renderer_initialized = False
-        rospy.loginfo(f'PoseEstimationVisualizerRos initialized, publishing to {topic}')
+        self.get_logger().info(f'PoseEstimationVisualizerRos initialized, publishing to {topic}')
             
-    def service_callback(self, req):
+    def service_callback(self, request, response):
         '''
         Service callback for the pose estimation visualization service.
         
@@ -80,37 +94,41 @@ class PoseEstimationVisualizerRos(PoseEstimationVisualizer):
             Empty response
         
         '''
-        rospy.loginfo("PoseEstimVis: Received service call")
+        self.get_logger().info("PoseEstimVis: Received service call")
         # renderer needs to be initialized in the same thread that executes the callback
         # else we get some threading related cpp exceptions => most robust way to do it is to just
         # initialize the renderer in every callback and delete it afterwards 
         # This is not that bad since the renderer is quite lightweight (takes like ~20ms to initialize)
-        rospy.loginfo("PoseEstimVis: Initializing renderer")
-        super().__init__(image_width, image_height, intrinsics_matrix)
-
-        dataset = rospy.get_param('/grasping_pipeline/dataset')
+        self.get_logger().info("PoseEstimVis: Initializing renderer")
+        PoseEstimationVisualizer.__init__(
+            self,
+            self.image_width,
+            self.image_height,
+            self.intrinsics_matrix
+        )
+        dataset = self.get_parameter('dataset').get_parameter_value().string_value
         meshes = []
-        for name in req.model_names:
+        for name in request.model_names:
             mesh = self.meshes.get(dataset, {}).get(name, None)
             if mesh is None and name != 'Unknown':
-                rospy.logwarn(f'No mesh for model {name} found!')
+                self.get_logger().warn(f'No mesh for model {name} found!')
                 continue
             meshes.append(copy.deepcopy(mesh))
 
         try:
             self.publish_pose_estimation_result(
-                req.rgb_image, 
-                req.model_poses, 
+                request.rgb_image, 
+                request.model_poses, 
                 meshes, 
-                req.model_names
+                request.model_names
                 )
         except Exception as e:
             print(f"AAAH exception in PoseEstimVis: {e}")
-        rospy.loginfo("PoseEstimVis: service call finished")
+        self.get_logger().info("PoseEstimVis: service call finished")
 
         # Delete renderer so that it properly cleans itself and is ready to get initialized next time
         del self.renderer 
-        return VisualizePoseEstimationResponse()
+        return response
     
     def publish_pose_estimation_result(self, ros_image, ros_model_poses, model_meshes, model_names):
         '''
@@ -128,9 +146,9 @@ class PoseEstimationVisualizerRos(PoseEstimationVisualizer):
             names of the models
         '''
         model_poses = ros_poses_to_np_transforms(ros_model_poses)
-        np_img = ros_numpy.numpify(ros_image)
+        np_img = self.bridge.imgmsg_to_cv2(ros_image)
         vis_img = self.create_visualization(np_img, model_poses, model_meshes, model_names)
-        vis_img_ros = ros_numpy.msgify(Image, vis_img, encoding='rgb8')
+        vis_img_ros = self.bridge.cv2_to_imgmsg(vis_img, encoding='rgb8')
         self.image_pub.publish(vis_img_ros)
       
     def load_meshes(self, model_dir):
@@ -163,30 +181,55 @@ class PoseEstimationVisualizerRos(PoseEstimationVisualizer):
                 mesh.scale(depth_mm_to_m, center = [0, 0, 0])
                 meshes[dataset_name][model_name] = mesh
         return meshes
-        
-if __name__ == '__main__':
-    rospy.init_node('PoseEstimationVisualizer')
+
+def wait_for_camera_info(node, topic):
+    future = rclpy.task.Future()
+
+    def callback(msg):
+        future.set_result(msg)
+
+    sub = node.create_subscription(CameraInfo, topic, callback, 10)
+
+    rclpy.spin_until_future_complete(node, future)
+    node.destroy_subscription(sub)
+
+    return future.result()
+
+def main(args=None):
+    rclpy.init(args=args)
+
     if len(sys.argv) < 2:
-        rospy.logerr('No model_dir was specified!')
+        print('No model_dir specified!')
         sys.exit(-1)
 
-    cam_info = rospy.wait_for_message(rospy.get_param('/cam_info_topic'), CameraInfo)
+    model_dir = sys.argv[1]
+
+    temp_node = Node('temp_node')
+
+    cam_info_topic = '/head_rgbd_sensor/depth_registered/camera_info'
+    cam_info = wait_for_camera_info(temp_node, cam_info_topic)
 
     image_width = cam_info.width
     image_height = cam_info.height
-    intrinsics_matrix = cam_info.K
-    model_dir = sys.argv[1]
-    topic = rospy.get_param('/grasping_pipeline/result_visualization_topic')
-    service_name = rospy.get_param('/grasping_pipeline/result_visualization_service_name')
-    
-    server = PoseEstimationVisualizerRos(
-        topic,
-        image_width,
-        image_height, 
-        intrinsics_matrix, 
-        model_dir, 
-        expose_service=True, 
-        service_name=service_name
-        )
+    intrinsics_matrix = cam_info.k
 
-    rospy.spin()
+    temp_node.destroy_node()
+
+    node = PoseEstimationVisualizerRos(
+        topic='/pose_estimator/result_visualization',
+        image_width=image_width,
+        image_height=image_height,
+        intrinsics_matrix=intrinsics_matrix,
+        model_dir=model_dir,
+        expose_service=True,
+        service_name='/pose_estimator/result_visualization_service'
+    )
+
+    rclpy.spin(node)
+
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

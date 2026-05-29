@@ -8,24 +8,27 @@ from yaml.loader import SafeLoader
 from math import pi
 from sensor_msgs.msg import Image, CameraInfo
 from v4r_util.depth_pcd import convert_ros_depth_img_to_pcd
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Pose
 import PyKDL
-import actionlib
-import rospy
-from grasping_pipeline_msgs.msg import (FindGrasppointAction,
-                                   FindGrasppointResult)
-from tf.transformations import (quaternion_about_axis, quaternion_from_matrix,
+#import actionlib
+from rclpy.action import ActionClient, ActionServer
+from rclpy.qos import qos_profile_sensor_data
+#import rospy
+import rclpy
+from rclpy.node import Node
+from grasping_pipeline_msgs.action import FindGrasppoint
+from tf_transformations import (quaternion_about_axis, quaternion_from_matrix,
                                 quaternion_multiply)
-from tf_conversions import posemath
+#from tf_conversions import posemath
 from visualization_msgs.msg import Marker
 
-from grasp_annotator import GraspAnnotator
+from grasping_pipeline.grasp_annotator import GraspAnnotator
 
 from v4r_util.bb import create_ros_bb_stamped
 
 import time
 
-class FindGrasppointServer:
+class FindGrasppointServer(Node):
     '''
     Computes the grasp_poses for the object to grasp based on annotated grasps.
 
@@ -68,7 +71,7 @@ class FindGrasppointServer:
         box of the object and the object name.
     '''
     
-    def __init__(self, model_dir):
+    def __init__(self):
         '''
         Initializes the FindGrasppointServer.
 
@@ -83,24 +86,67 @@ class FindGrasppointServer:
         model_dir: str
             Path to the directory containing the model metadata file.
         '''
+        super().__init__('find_grasppoint_server')
+        self.declare_parameter('model_dir', '/root/ros2_ws/src/grasping_pipeline/models')
+        model_dir = self.get_parameter('model_dir').value
         with open(os.path.join(model_dir, "models_metadata.yml")) as f:
             self.models_metadata = yaml.load(f, Loader=SafeLoader)
 
-        self.server = actionlib.SimpleActionServer(
-            'find_grasppoint', FindGrasppointAction, self.execute, False)
-        self.marker_pub = rospy.Publisher('/grasping_pipeline/grasp_marker', Marker, queue_size=10)
-        self.server.start()
+        self.declare_parameter('object_to_grasp', None)
+        self.declare_parameter('dataset', 'ycb_ichores')
+        self.dataset = self.get_parameter('dataset').value
 
-        rospy.logdebug('Waiting for camera info')
-        self.cam_info = rospy.wait_for_message(rospy.get_param('/cam_info_topic'), CameraInfo)
+        self._action_server = ActionServer(
+            self,
+            FindGrasppoint,
+            'find_grasppoint',
+            execute_callback=self.execute_callback
+        )
         
-        self.timeout = rospy.get_param('/grasping_pipeline/timeout_duration')
-        self.grasp_annotator = GraspAnnotator()
+        self.marker_pub = self.create_publisher(Marker, '/grasping_pipeline/grasp_marker', 10)
+        
+
+        self.get_logger().debug('Waiting for camera info')
+        
+        self.declare_parameter('cam_info_topic', '/head_rgbd_sensor/depth_registered/camera_info')
+        self.cam_topic = self.get_parameter('cam_info_topic').value
+        self.cam_info = None
+        self.wait_for_camera_info()
+
+        self.declare_parameter('timeout_duration',40.0)
+        self.timeout = float(self.get_parameter('timeout_duration').value)
+        self.grasp_annotator = GraspAnnotator(self)
       
-        rospy.loginfo('Initializing FindGrasppointServer done')
+        self.get_logger().info('Initializing FindGrasppointServer done')
 
+    '''
+     Waits for the camera info message to be received and stores it in the cam_info attribute.
+        This function replaces the old rospy.wait_for_message for the camera info, since we need the camera info to convert the depth image
+    '''    
+    def wait_for_camera_info(self):
+        self.cam_info = None
 
-    def execute(self, goal):
+        def cb(msg):
+            self.cam_info = msg
+
+        self.create_subscription(
+            CameraInfo,
+            self.cam_topic,
+            cb,
+            qos_profile_sensor_data
+        )
+
+        self.get_logger().info(f'Waiting for CameraInfo on {self.cam_topic}...')
+
+        while rclpy.ok() and self.cam_info is None:
+            rclpy.spin_once(self, timeout_sec=0.1)
+
+        if self.cam_info is None:
+            raise RuntimeError('CameraInfo not received')
+
+        self.get_logger().info('CameraInfo received')
+
+    def execute_callback(self, goal_handle):
         '''
         Executes the FindGrasppoint action server.
         
@@ -113,7 +159,7 @@ class FindGrasppointServer:
         
         Parameters
         ----------
-        goal: grasping_pipeline_msgs.msg.FindGrasppointGoal
+        goal_handle: grasping_pipeline_msgs.msg.FindGrasppointGoal
             The goal of the FindGrasppoint action server. Contains the object to grasp.
         
         Returns
@@ -122,64 +168,75 @@ class FindGrasppointServer:
             The result of the FindGrasppoint action server. Contains the grasp poses, the bounding 
             box of the object and the object name.
         '''
+        self.get_logger().info('Received FindGrasppoint request')
+        goal = goal_handle.request
+        result = FindGrasppoint.Result()
+        
         try:
             scene_cloud, scene_cloud_o3d = convert_ros_depth_img_to_pcd(
                 goal.depth, 
                 self.cam_info, 
                 project_valid_depth_only=False)
-            
+            self.get_logger().info(f"Width: {scene_cloud.width}")
+            self.get_logger().info(f"Height: {scene_cloud.height}")
+            self.get_logger().info(f"is_dense: {scene_cloud.is_dense}")
+            self.get_logger().info(f"Fields: {[f.name for f in scene_cloud.fields]}")
             if goal.object_to_grasp != None and goal.object_to_grasp != '':
                 param_object_to_grasp = goal.object_to_grasp
-            elif rospy.has_param('/grasping_pipeline/grasping/object_name'):
-                # Getting object to grasp from config file
-                param_object_to_grasp = rospy.get_param('/grasping_pipeline/grasping/object_name')
             else:
-                param_object_to_grasp = None
+                param_object_to_grasp = self.get_parameter('object_to_grasp').value
                 
             # Check if object to grasp is specified and detected
             if param_object_to_grasp != None and param_object_to_grasp != '' and param_object_to_grasp != 'None':
-                rospy.loginfo(f'Object to grasp specified. Will grasp specified object {param_object_to_grasp}')
+                self.get_logger().info(f'Object to grasp specified. Will grasp specified object {param_object_to_grasp}')
                 if param_object_to_grasp in goal.class_names:
                     object_idxs = [goal.class_names.index(param_object_to_grasp)]     # changed           
                 else:
-                    rospy.logwarn(f'Object to grasp ({param_object_to_grasp}) not detected. Grasping closest object.')
+                    self.get_logger().warn(f'Object to grasp ({param_object_to_grasp}) not detected. Grasping closest object.')
                     object_idxs = self.get_closest_objects(goal.object_poses)             
             else:
-                rospy.loginfo('No object to grasp specified. Will grasp closest object')
+                self.get_logger().info('No object to grasp specified. Will grasp closest object')
                 object_idxs = self.get_closest_objects(goal.object_poses)    # changed to return a list of object indices sorted by distance
 
             for object_idx in object_idxs:
 
-                result = FindGrasppointResult()
                 object_to_grasp = goal.object_poses[object_idx]
                 object_name = goal.class_names[object_idx]
+
                 object_to_grasp_stamped = PoseStamped(pose = object_to_grasp, header = goal.depth.header)
+                self.get_logger().info(f"Object pose frame: {object_to_grasp_stamped.header.frame_id}")
+                self.get_logger().info(f"Object Z before: {object_to_grasp_stamped.pose.position.z}")
+                self.get_logger().info(f"Annoting grasps for object {object_name}")
 
-                rospy.loginfo(f"Annoting grasps for object {object_name}")
-
-                rospy.logdebug('Generating grasp poses')
+                self.get_logger().debug('Generating grasp poses')
 
                 grasp_poses = self.grasp_annotator.annotate(object_to_grasp_stamped, scene_cloud, object_name)
-                
+                self.get_logger().info(f"got grasp_poses")
                 object_bb_stamped = self.get_bb_for_known_objects(object_to_grasp_stamped, object_name, goal.depth.header.frame_id, goal.depth.header.stamp)
-
+                self.get_logger().info(f"got object_bb_stamped")
                 if grasp_poses is None or len(grasp_poses) < 1:
-                    rospy.logerr(f"No grasp pose found for object {object_name}")
+                    self.get_logger().error(f"No grasp pose found for object {object_name}")
                     continue
-                
+                self.get_logger().info(f"Object pose frame: {grasp_poses[0].header.frame_id}")
+                self.get_logger().info(f"Object Z after: {grasp_poses[0].pose.position.z}")
                 result.grasp_poses = grasp_poses
                 result.grasp_object_bb = object_bb_stamped
                 result.grasp_object_name = object_name
 
                 self.add_marker(grasp_poses[0])
                 self.add_bb_marker(object_bb_stamped)
-                self.server.set_succeeded(result)
-                return
+                goal_handle.succeed()
+                return result
+            
+            self.get_logger().error("No valid grasp found for any object")
+            goal_handle.abort()
+            return result
 
         except (ValueError, TimeoutError) as e:
-            rospy.logerr(str(e))
-            self.server.set_aborted(text=str(e))
-        self.server.set_aborted()
+            self.get_logger().error(str(e))
+            goal_handle.abort()
+            return result
+
 
     def transform_to_kdl(self, pose):
         '''
@@ -223,18 +280,39 @@ class FindGrasppointServer:
         grasping_pipeline_msgs.msg.BoundingBoxStamped
             The bounding box for the object with frame id and timestamp.
         '''
-        dataset = rospy.get_param('/grasping_pipeline/dataset')
+        dataset = self.dataset        
         metadata = self.models_metadata[dataset][object_name]
         center = metadata['center']
         extent = metadata['extent']
         rot_mat = metadata['rot']
-        bb_stamped = create_ros_bb_stamped(center, extent, rot_mat, frame_id, stamp)
+        bb_stamped = create_ros_bb_stamped(center, extent, rot_mat, frame_id, rclpy.time.Time().to_msg()) # maybe back to stamp
         t1 = self.transform_to_kdl(bb_stamped.center)
         t2 = self.transform_to_kdl(object_pose.pose)
         t_res = t2 * t1
-        t_res_ros = posemath.toMsg(t_res)
+        #t_res_ros = posemath.toMsg(t_res)
+        t_res_ros =  self.kdl_to_pose(t_res)
         bb_stamped.center = t_res_ros
         return bb_stamped
+    '''
+    def kdl_to_pose (self, pose):
+        return posemath.toMsg(t_res) from PyKDL.Frame to  geometry_msgs.msg.Pose
+    '''
+    def kdl_to_pose(self, frame: PyKDL.Frame) -> Pose:
+        pose = Pose()
+
+        x, y, z = frame.p
+        qx, qy, qz, qw = frame.M.GetQuaternion()
+
+        pose.position.x = x
+        pose.position.y = y
+        pose.position.z = z
+
+        pose.orientation.x = qx
+        pose.orientation.y = qy
+        pose.orientation.z = qz
+        pose.orientation.w = qw
+
+        return pose
 
     def get_closest_objects(self, object_poses):
         '''
@@ -289,7 +367,7 @@ class FindGrasppointServer:
         """
         marker = Marker()
         marker.header.frame_id = pose_goal.header.frame_id
-        marker.header.stamp = rospy.Time()
+        marker.header.stamp = rclpy.time.Time().to_msg()
         marker.ns = 'grasp_marker'
         marker.id = 0
         marker.type = Marker.ARROW
@@ -314,10 +392,10 @@ class FindGrasppointServer:
 
         marker.color.a = 1.0
         marker.color.r = 1.0
-        marker.color.g = 0
-        marker.color.b = 0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
         self.marker_pub.publish(marker)
-        rospy.loginfo('grasp_marker')
+        self.get_logger().info('grasp_marker')
 
     
     def add_bb_marker(self, object_bb_stamped):
@@ -335,7 +413,7 @@ class FindGrasppointServer:
         '''
         marker = Marker()
         marker.header.frame_id = object_bb_stamped.header.frame_id
-        marker.header.stamp = rospy.Time()
+        marker.header.stamp = rclpy.time.Time().to_msg()
         marker.ns = 'bb_marker'
         marker.id = 0
         marker.type = Marker.CUBE
@@ -345,16 +423,17 @@ class FindGrasppointServer:
         marker.scale = deepcopy(object_bb_stamped.size)
 
         marker.color.a = 0.5
-        marker.color.r = 0
-        marker.color.g = 0
+        marker.color.r = 0.0
+        marker.color.g = 0.0
         marker.color.b = 1.0
         self.marker_pub.publish(marker)
 
+def main(args=None):
+    rclpy.init(args=args)
+    node = FindGrasppointServer()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
 if __name__ == '__main__':
-    rospy.init_node('find_grasppoint_server')
-    if len(sys.argv) < 2:
-        rospy.logerr('No model dir was specified!')
-        sys.exit(-1)
-    model_dir = sys.argv[1]
-    server = FindGrasppointServer(model_dir)
-    rospy.spin()
+    main()

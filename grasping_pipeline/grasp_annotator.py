@@ -1,18 +1,21 @@
 # Filesystem
 import os
+from ament_index_python.packages import get_package_share_directory
 import sys
 
 # Visualization
 import open3d as o3d
-import open3d_ros_helper.open3d_ros_helper as orh
+#import open3d_ros_helper.open3d_ros_helper as orh
+import sensor_msgs_py.point_cloud2 as pc2
+
 
 # ROS
-import rospy
+import rclpy
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Header
 
 # Transformation
-import tf
+import tf_transformations
 import transforms3d as tf3d
 
 # Other
@@ -43,12 +46,14 @@ fail_list_description = {FailList.IN_COLLISION: "Gripper is in collision with th
                          FailList.NOT_REACHABLE: "Grasp is not Reachable"}
     
 class GraspAnnotator:
-    def __init__(self, pcd_filter_distance = 0.16):
+    def __init__(self, node, pcd_filter_distance = 0.16):
         """Init function for the GraspAnnotator class. The class is used to check if a grasp is valid by checking if it is reachable and collision free.
 
         Args:
             pcd_filter_distance (float, optional): Distance for the filtering of the point cloud in meters. Defaults to 0.16. If 0 or None, the point cloud is not filtered.
         """
+        #node.declare_parameter('dataset', 'ycb_bop')
+        self.dataset = node.get_parameter('dataset').value
         # Check if the point cloud should be filtered
         if pcd_filter_distance is None or pcd_filter_distance == 0:
             self.filter_pcd_flag = False
@@ -59,7 +64,8 @@ class GraspAnnotator:
 
         # Initializing other stuff
         self.fail_list = []
-        self.tf2_wrapper = TF2Wrapper()
+        self.tf2_wrapper = TF2Wrapper(node)
+        self.node = node
 
         self.dir_path = os.path.dirname(os.path.realpath(__file__))
         gripper_cloud_file = os.path.join(
@@ -67,7 +73,7 @@ class GraspAnnotator:
         try:
             self.gripper_cloud = o3d.io.read_point_cloud(gripper_cloud_file)
         except FileNotFoundError:
-            rospy.logerr("Gripper cloud file not found. Cannot check for collisions.")
+            self.node.get_logger().error("Gripper cloud file not found. Cannot check for collisions.")
             self.gripper_cloud = None
 
     def is_grasp_reachable(self, grasp_pose, cam_to_base):
@@ -127,7 +133,7 @@ class GraspAnnotator:
             bool: True if the grasp pose is not in collision with the scene and table, false otherwise
         """
         if self.gripper_cloud is None:
-            rospy.logerr("Gripper cloud not loaded. Cannot check for collisions.")
+            self.node.get_logger().error("Gripper cloud not loaded. Cannot check for collisions.")
             return False
 
         filtered_o3d_pcd = filter_pcd(grasp_pose[:3, 3], o3d_pcd, self.filter_distance)
@@ -152,7 +158,7 @@ class GraspAnnotator:
 
         if self.filter_pcd_flag:
             if len(filtered_o3d_pcd.points) == 0:
-                rospy.logwarn("Filtered pcd is empty. No detections expected.")
+                self.node.get_logger().warn("Filtered pcd is empty. No detections expected.")
                 return True
         
         # Find nearest point in scene for each gripper point and return collision if any point is closer than threshold
@@ -200,8 +206,62 @@ class GraspAnnotator:
         e = np.sqrt(plane[0] * plane[0] + plane[1]
                     * plane[1] + plane[2] * plane[2])
         return dist/e
-    
+    '''
+    Static function to convert a ROS2 PointCloud2 message to an Open3D point cloud
+    '''
+    def ros2_pointcloud2_to_o3d(self, msg, include_rgb=True):
+        field_names = ["x", "y", "z"]
+        available_fields = [f.name for f in msg.fields]
+        if include_rgb and ("rgb" in available_fields):
+            field_names.append("rgb")
 
+        points = []
+        colors = []
+
+        for point in pc2.read_points(msg, field_names=field_names, skip_nans=True):
+            x = point["x"]
+            y = point["y"]
+            z = point["z"]
+            points.append([x, y, z])
+
+            if include_rgb and ("rgb" in available_fields):
+                rgb = point["rgb"]
+                # unpack float32 RGB
+                rgb_int = int(rgb)
+                r = (rgb_int >> 16) & 255
+                g = (rgb_int >> 8) & 255
+                b = rgb_int & 255
+                colors.append([r/255.0, g/255.0, b/255.0])
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.array(points))
+
+        if include_rgb and ("rgb" in available_fields):
+            pcd.colors = o3d.utility.Vector3dVector(np.array(colors))
+
+        return pcd
+    
+    def snap_grasp_to_cloud(self, grasp_pose, o3d_pcd):
+        points = np.asarray(o3d_pcd.points)
+
+        # safety check
+        if points.shape[0] == 0:
+            return grasp_pose
+
+        center = grasp_pose[:3, 3]
+
+        # find closest point in XY plane
+        dists_xy = np.linalg.norm(points[:, :2] - center[:2], axis=1)
+        idx = np.argmin(dists_xy)
+
+        # snap Z
+        new_center = center.copy()
+        new_center[2] = points[idx, 2]
+
+        grasp_pose_new = grasp_pose.copy()
+        grasp_pose_new[:3, 3] = new_center
+
+        return grasp_pose_new
 
     def annotate(self, object_pose_stamped, scene_pcd, object_name, table_plane = None):
         """
@@ -216,9 +276,10 @@ class GraspAnnotator:
         Returns:
             geometry_msgs.PoseStamped[]: List of valid grasp poses
         """
-        o3d_pcd = orh.rospc_to_o3dpc(scene_pcd, True).voxel_down_sample(voxel_size=VOXEL_SIZE)
+        o3d_pcd = self.ros2_pointcloud2_to_o3d(scene_pcd, True)
+        o3d_pcd = o3d_pcd.voxel_down_sample(voxel_size=VOXEL_SIZE)
         if table_plane is None:
-            rospy.logwarn("Table plane not provided, not explicitly checking for clearance from the table.")
+            self.node.get_logger().warn("Table plane not provided, not explicitly checking for clearance from the table.")
 
         # Get the transformation from the camera to the base
         trans = self.tf2_wrapper.get_transform_between_frames(source_frame="head_rgbd_sensor_rgb_frame", target_frame="map")
@@ -236,15 +297,17 @@ class GraspAnnotator:
         object_pose[:3, 3] = [object_pose_stamped.pose.position.x,
                             object_pose_stamped.pose.position.y, object_pose_stamped.pose.position.z]
 
-        dataset = rospy.get_param("/grasping_pipeline/dataset")
+        dataset = self.dataset
+        package_path = get_package_share_directory('grasping_pipeline')
         # Load the grasps from the .npy file
-        grasps_path = os.path.join(
-            self.dir_path, os.pardir, 'grasps', dataset, object_name +'.npy')
+        grasps_path =  f"/root/ros2_ws/src/grasping_pipeline/grasps/{dataset}/{object_name}.npy"
+        #os.path.join( package_path,'grasps', dataset, object_name + '.npy')
+        self.node.get_logger().info(f"Loading grasps from {grasps_path}")
 
         try:
             grasp_poses = np.load(grasps_path)
         except FileNotFoundError:
-            rospy.logerr(f"Numpy file with grasps for object {object_name} not found (Either the object name is wrong or the grasps have not been annotated yet).")
+            self.node.get_logger().error(f"Numpy file with grasps for object {object_name} not found (Either the object name is wrong or the grasps have not been annotated yet).")
             return []
         
         grasp_poses = grasp_poses.reshape((grasp_poses.shape[0], 4, 4))
@@ -256,6 +319,8 @@ class GraspAnnotator:
         for pose in grasp_poses:
 
             grasp_try = np.matmul(object_pose, pose)
+            #try to snap the grasp_pose
+            #grasp_try = self.snap_grasp_to_cloud(grasp_try, o3d_pcd)
 
             # Check if the grasp is valid, if not continue
             res = self.is_grasp_valid(grasp_try, o3d_pcd, table_plane, cam_to_base=cam_to_base)
@@ -272,7 +337,7 @@ class GraspAnnotator:
             pose.pose.position.x = grasp_try[0, 3]
             pose.pose.position.y = grasp_try[1, 3]
             pose.pose.position.z = grasp_try[2, 3]
-            quat = tf.transformations.quaternion_from_matrix(grasp_try)
+            quat = tf_transformations.quaternion_from_matrix(grasp_try)
             pose.pose.orientation.x = quat[0]
             pose.pose.orientation.y = quat[1]
             pose.pose.orientation.z = quat[2]
@@ -287,7 +352,7 @@ class GraspAnnotator:
         
         # Sort the grasps by distance to wrist
         sorted_indices = np.argsort(distances)
-        sorted_valid_grasp_poses = valid_grasp_poses[sorted_indices]
+        sorted_valid_grasp_poses = [valid_grasp_poses[i] for i in sorted_indices]
 
         if len(sorted_valid_grasp_poses) == 0:
             fail_counts = Counter(self.fail_list)
@@ -295,8 +360,8 @@ class GraspAnnotator:
             # Print the descriptions with their counts
             for reason, count in fail_counts.items():
                 description = fail_list_description[reason]
-                rospy.logwarn(f"{description} ({count}x)")
+                self.node.get_logger().warn(f"{description} ({count}x)")
         else:
-            rospy.loginfo(f"Found {len(sorted_valid_grasp_poses)} valid grasps")
+            self.node.get_logger().info(f"Found {len(sorted_valid_grasp_poses)} valid grasps")
             
         return sorted_valid_grasp_poses
