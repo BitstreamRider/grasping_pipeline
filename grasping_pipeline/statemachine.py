@@ -6,7 +6,7 @@ import yasmin
 from grasping_pipeline.statemachine_components import create_goal_cb, get_robot_setup_sm, get_execute_grasp_sm, get_placement_sm, get_find_grasp_sm, get_object_detector_sm, get_pose_estimator_sm
 from grasping_pipeline.userinput import UserInput
 from grasping_pipeline.robot_control import GoToWaypoint, GoBack, GoToNeutral, CheckTopGrasp
-from handover_msgs.action import Handover
+from grasping_pipeline_msgs.action import Handover
 from grasping_pipeline.check_table_clean import CheckTableClean, RemoveNonTableObjects
 from grasping_pipeline.find_table_planes import FindTablePlanes
 import yasmin_ros

@@ -6,7 +6,7 @@ import yasmin
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import Point, PointStamped
 from std_msgs.msg import Header
-from table_plane_extractor_msgs.srv import TablePlaneExtractor
+from grasping_pipeline_msgs.srv import TablePlaneExtractor
 from std_msgs.msg import Float32MultiArray
 from v4r_util.tf2 import TF2Wrapper
 from v4r_util.conversions import bounding_box_to_bounding_box_stamped

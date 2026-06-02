@@ -34,7 +34,7 @@ from grasping_pipeline_msgs.action import Place
 # from tmc_geometric_shapes_msgs.msg import Shape
 # from tmc_placement_area_detector.srv import DetectPlacementArea
 # moved for ROS2
-from tmc_manipulation_msgs.msg import Shape
+from tmc_manipulation_msgs.msg import Shape # needs to be added in the CMakeLists of tmc_common_msgs/tmc_manipulation_msgs otherwise it will not be found
 # from tmc_manipulation_msgs.srv import DetectPlacementArea
 
 class PlaceObjectServer(Node):
