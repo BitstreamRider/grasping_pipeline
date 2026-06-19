@@ -72,7 +72,7 @@ def get_robot_setup_sm(setup_waypoint, node):
     return sm
 
     
-def get_execute_grasp_sm(after_grasp_waypoint, node):
+def get_execute_grasp_sm(after_grasp_waypoint, node, moveit_wrapper):
     '''
     Returns a state machine that performs all steps necessary to execute a grasp.
     '''
@@ -89,7 +89,7 @@ def get_execute_grasp_sm(after_grasp_waypoint, node):
     )
     sm.add_state(
         "ADD_COLLISION_OBJECTS",
-        CollisionEnvironment(node = node),
+        CollisionEnvironment(node = node, moveit_wrapper = moveit_wrapper),
         transitions={
             "succeeded" : "EXECUTE_GRASP",
         },

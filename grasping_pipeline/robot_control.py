@@ -10,7 +10,6 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from pathlib import Path
 from grasping_pipeline.moveit_wrapper import MoveitWrapper
-from grasping_pipeline.moveit_single_node import MoveItSingleNode
 from v4r_util.tf2 import TF2Wrapper
 from geometry_msgs.msg import PointStamped
 from nav2_msgs.action import NavigateToPose
@@ -61,12 +60,12 @@ class GoToNeutralMoveIt(yasmin.State):
         probably not the best way, but I decided to do it like this so you can easily replace it with
         GoToNeutral() by just changing the state name and not having to touch the transitions.
     """
-    def __init__(self, node):
+    def __init__(self, node, moveit_wrapper):
         super().__init__(['succeeded'])
         self.node = node
+        self.moveit_wrapper = moveit_wrapper
         # Robot initialization
         self.tf_wrapper = TF2Wrapper(self.node)
-        self.moveit_wrapper = MoveItSingleNode.get(self.tf_wrapper, self)
 
     def execute(self, blackboard: yasmin.Blackboard):
         mw = self.moveit_wrapper

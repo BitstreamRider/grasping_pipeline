@@ -161,7 +161,5 @@ def generate_launch_description():
     )
     return LaunchDescription([
         SetParameter(name='use_sim_time', value=True),        
-        static_tf,
-        odom_joint_states_publisher,
         delayed_start_state_machine
     ])

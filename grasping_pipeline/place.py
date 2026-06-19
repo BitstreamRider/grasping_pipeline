@@ -35,7 +35,7 @@ from grasping_pipeline_msgs.action import Place
 # from tmc_placement_area_detector.srv import DetectPlacementArea
 # moved for ROS2
 from tmc_manipulation_msgs.msg import Shape # needs to be added in the CMakeLists of tmc_common_msgs/tmc_manipulation_msgs otherwise it will not be found
-# from tmc_manipulation_msgs.srv import DetectPlacementArea
+# from tmc_manipulation_msgs.srv import DetectPlacementArea not available in ROS2 yet, needs to be adapted
 
 class PlaceObjectServer(Node):
     '''
@@ -342,7 +342,7 @@ class PlaceObjectServer(Node):
         # Wait for the service to be available
         while not self.placement_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Service not available, waiting again...')
-        # Build the request
+        # Build the request not available in ROS2 yet, needs to be adapted
         # Toyota Detect Placement Area Service:
             # frame: everything (points and x,y,z axis) are relative to this frame
             # target_point x,y,z is a rough estimation of a point on a table (best if its middle point)

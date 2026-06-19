@@ -10,14 +10,18 @@ from grasping_pipeline_msgs.action import Handover
 from grasping_pipeline.check_table_clean import CheckTableClean, RemoveNonTableObjects
 from grasping_pipeline.find_table_planes import FindTablePlanes
 import yasmin_ros
+from grasping_pipeline.moveit_wrapper import MoveitWrapper
+from v4r_util.tf2 import TF2Wrapper
 
 def create_statemachine(node, do_handover=True):
     sm = yasmin.StateMachine(outcomes=['end'])    
+    tf_wrapper = TF2Wrapper(node)
+    moveit_wrapper = MoveitWrapper(tf_wrapper, node)
 
     table_waypoint = GoToWaypoint(node, 0.50, 0.4, 0)
     setup_sm = get_robot_setup_sm(table_waypoint, node)
     find_grasp_sm = get_find_grasp_sm(node)
-    execute_grasp_sm = get_execute_grasp_sm(table_waypoint, node)
+    execute_grasp_sm = get_execute_grasp_sm(table_waypoint, node, moveit_wrapper)
     placement_sm = get_placement_sm(node)
     single_grasp_sm = get_single_grasp_sm(table_waypoint, find_grasp_sm, execute_grasp_sm, placement_sm, node)
     clear_table_sm = get_clear_table_sm(table_waypoint, get_object_detector_sm(node), get_pose_estimator_sm(node), execute_grasp_sm, placement_sm, setup_sm, node)

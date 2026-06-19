@@ -39,7 +39,7 @@ class CollisionEnvironment(yasmin.State):
         Currently set to 'object', but might be changed in the future (and be an actual variable), hence the output key.
     '''
 
-    def __init__(self, node):
+    def __init__(self, node, moveit_wrapper):
         '''
         Initializes the CollisionEnvironment state. 
         
@@ -54,7 +54,7 @@ class CollisionEnvironment(yasmin.State):
         #while timeout_cnt < 150: #delay so that tf buffer can fill up.
         #    rclpy.spin_once(self.node, timeout_sec=0.1)
         #    timeout_cnt += 1
-        self.moveit_wrapper = MoveItSingleNode.get(self.tf_wrapper, self.node)
+        self.moveit_wrapper = moveit_wrapper
         
         
         self.moveit_wrapper.detach_all_objects()
