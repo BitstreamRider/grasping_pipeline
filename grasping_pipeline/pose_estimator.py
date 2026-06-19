@@ -61,13 +61,13 @@ class CallPoseEstimatorService(Node):
 
     def __init__(self):
         super().__init__('pose_estimator')
-        self.declare_parameter('result_visualization_service_name','/pose_estimator/result_visualization_service')
-        self.declare_parameter('pose_estimator_topic', '/pose_estimator/gdrnet' )
-        self.declare_parameter('timeout_duration', 5.0 ) #change back to 40.0
+        self.declare_parameter('grasping_pipeline.result_visualization_service_name','/pose_estimator/result_visualization_service')
+        self.declare_parameter('grasping_pipeline.pose_estimator_topic', '/pose_estimator/gdrnet' )
+        self.declare_parameter('grasping_pipeline.timeout_duration', 40.0 )
         
-        self.res_vis_service_name = self.get_parameter('result_visualization_service_name').value
-        self.topic = self.get_parameter('pose_estimator_topic').value
-        self.timeout = self.get_parameter('timeout_duration').value
+        self.res_vis_service_name = self.get_parameter('grasping_pipeline.result_visualization_service_name').value
+        self.topic = self.get_parameter('grasping_pipeline.pose_estimator_topic').value
+        self.timeout = self.get_parameter('grasping_pipeline.timeout_duration').value
         
         self.bridge = CvBridge()
         self.action_server = self.create_service(

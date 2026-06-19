@@ -92,9 +92,9 @@ class FindGrasppointServer(Node):
         with open(os.path.join(model_dir, "models_metadata.yml")) as f:
             self.models_metadata = yaml.load(f, Loader=SafeLoader)
 
-        self.declare_parameter('object_to_grasp', None)
-        self.declare_parameter('dataset', 'ycb_ichores')
-        self.dataset = self.get_parameter('dataset').value
+        self.declare_parameter('grasping_pipeline.object_to_grasp', None)
+        self.declare_parameter('grasping_pipeline.dataset', 'ycb_ichores')
+        self.dataset = self.get_parameter('grasping_pipeline.dataset').value
 
         self._action_server = ActionServer(
             self,
@@ -113,8 +113,8 @@ class FindGrasppointServer(Node):
         self.cam_info = None
         self.wait_for_camera_info()
 
-        self.declare_parameter('timeout_duration',40.0)
-        self.timeout = float(self.get_parameter('timeout_duration').value)
+        self.declare_parameter('grasping_pipeline.timeout_duration',40.0)
+        self.timeout = float(self.get_parameter('grasping_pipeline.timeout_duration').value)
         self.grasp_annotator = GraspAnnotator(self)
       
         self.get_logger().info('Initializing FindGrasppointServer done')
@@ -184,7 +184,7 @@ class FindGrasppointServer(Node):
             if goal.object_to_grasp != None and goal.object_to_grasp != '':
                 param_object_to_grasp = goal.object_to_grasp
             else:
-                param_object_to_grasp = self.get_parameter('object_to_grasp').value
+                param_object_to_grasp = self.get_parameter('grasping_pipeline.object_to_grasp').value
                 
             # Check if object to grasp is specified and detected
             if param_object_to_grasp != None and param_object_to_grasp != '' and param_object_to_grasp != 'None':

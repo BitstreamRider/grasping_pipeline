@@ -47,8 +47,8 @@ class SynchronizedImageFetcher(Node):
         self.rgb_image = None
         self.depth_image = None
 
-        rgb_topic = self.get_parameter('rgb_topic').get_parameter_value().string_value
-        depth_topic = self.get_parameter('depth_topic').get_parameter_value().string_value
+        rgb_topic = self.get_parameter('rgb_topic').value
+        depth_topic = self.get_parameter('depth_topic').value
 
         self.rgb_sub = Subscriber(self, Image, rgb_topic)
         self.depth_sub = Subscriber(self, Image, depth_topic)

@@ -85,12 +85,11 @@ class DirectGraspposeEstimatorCaller(Node):
         self.bridge = CvBridge()
 
         self.declare_parameter('cam_info_topic', '/hsrb/head_rgbd_sensor/depth_registered/camera_info')
-        self.declare_parameter('grasppoint_estimator_topic', '/pose_estimator/find_grasppose_haf')
-        self.declare_parameter('timeout_duration','/grasping_pipeline/timeout_duration')
-
+        self.declare_parameter('grasping_pipeline.grasppoint_estimator_topic', '/pose_estimator/find_grasppose_haf')
+        self.declare_parameter('grasping_pipeline.timeout_duration', 40.0)
         self.cam_topic = self.get_parameter('cam_info_topic').value
-        self.action_topic = self.get_parameter('grasppoint_estimator_topic').value
-        self.timeout = float(self.get_parameter('timeout_duration').value)
+        self.action_topic = self.get_parameter('grasping_pipeline.grasppoint_estimator_topic').value
+        self.timeout = float(self.get_parameter('grasping_pipeline.timeout_duration').value)
 
         # replaces the old wait_for_message in rospy to get the camera info, since we need the camera info to convert the depth image 
         # to a point cloud to extract the 3D bounding boxes of the objects

@@ -34,9 +34,9 @@ class GraspMethodSelector(yasmin.State):
         str
             'pose_based_grasp' if there are no 'Unknown' objects in class_names, otherwise 'direct_grasp'.
         '''
-        if not self.node.has_parameter('dataset'):
-            self.node.declare_parameter('dataset', "ycb_bop")
-        self.dataset = self.node.get_parameter('dataset').value
+        if not self.node.has_parameter('grasping_pipeline.dataset'):
+            self.node.declare_parameter('grasping_pipeline.dataset', "ycb_bop")
+        self.dataset = self.node.get_parameter('grasping_pipeline.dataset').value
         
         grasps_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir, 'grasps', self.dataset)
 

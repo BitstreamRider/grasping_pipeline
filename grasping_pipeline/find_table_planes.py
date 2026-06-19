@@ -44,13 +44,13 @@ class FindTablePlanes(yasmin.State):
         super().__init__(['succeeded'])
         if not self.node.has_parameter('point_cloud_topic'):
             self.node.declare_parameter('point_cloud_topic', '/head_rgbd_sensor/depth_registered/rectified_points')
-        if not self.node.has_parameter('dataset'):
-            self.node.declare_parameter('dataset', 'ycb_ichores')
-        if not self.node.has_parameter('extractor_server_name'):
-            self.node.declare_parameter('extractor_server_name', '/table_plane_extractor/get_planes')
+        if not self.node.has_parameter('grasping_pipeline.dataset'):
+            self.node.declare_parameter('grasping_pipeline.dataset', 'ycb_ichores')
+        if not self.node.has_parameter('table_extractor_server_name'):
+            self.node.declare_parameter('table_extractor_server_name', '/table_plane_extractor/get_planes')
         self.table_params = {k: v.value for k, v in self.node.get_parameters_by_prefix("table_plane_extractor_server").items()}
         self.topic = self.node.get_parameter('point_cloud_topic').value
-        self.table_extractor_srv_name = self.node.get_parameter('extractor_server_name').value
+        self.table_extractor_srv_name = self.node.get_parameter('table_extractor_server_name').value
         self.cbgroup = MutuallyExclusiveCallbackGroup()
         self.table_extractor = self.node.create_client(
                 TablePlaneExtractor, 

@@ -74,11 +74,11 @@ class CallObjectDetectorService(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL
         ) 
         self.cbgroup = MutuallyExclusiveCallbackGroup()
-        self.declare_parameter('object_detector_topic','/object_detector/yolov8')
-        self.declare_parameter('timeout_duration', 10.0) #change back to 40.0
+        self.declare_parameter('grasping_pipeline.object_detector_topic','/object_detector/yolov8')
+        self.declare_parameter('grasping_pipeline.timeout_duration', 10.0) #change back to 40.0
 
-        self.topic = self.get_parameter('object_detector_topic').value
-        self.timeout = self.get_parameter('timeout_duration').value
+        self.topic = self.get_parameter('grasping_pipeline.object_detector_topic').value
+        self.timeout = self.get_parameter('grasping_pipeline.timeout_duration').value
 
         self.srv = self.create_service(CallObjectDetector, 'call_object_detector', self.execute)
         self.label_image_pub = self.create_publisher(Image, '/grasping_pipeline/obj_det_label_image', qos_profile)

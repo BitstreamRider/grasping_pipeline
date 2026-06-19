@@ -53,7 +53,7 @@ class GraspAnnotator:
             pcd_filter_distance (float, optional): Distance for the filtering of the point cloud in meters. Defaults to 0.16. If 0 or None, the point cloud is not filtered.
         """
         #node.declare_parameter('dataset', 'ycb_bop')
-        self.dataset = node.get_parameter('dataset').value
+        self.dataset = node.get_parameter('grasping_pipeline.dataset').value
         # Check if the point cloud should be filtered
         if pcd_filter_distance is None or pcd_filter_distance == 0:
             self.filter_pcd_flag = False

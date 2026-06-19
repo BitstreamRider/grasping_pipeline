@@ -306,9 +306,9 @@ class GoToAndLookAtPlacementArea(yasmin.State):
         self.robot = Robot(node)
         self.whole_body = self.robot.try_get('whole_body')
         self.timeout = 40.0
-        if not self.node.has_parameter('dataset'):
-            self.node.declare_parameter('dataset', 'ycb_bop')
-        self.node.declare_parameter('placement_area', 'table')
+        if not self.node.has_parameter('grasping_pipeline.dataset'):
+            self.node.declare_parameter('grasping_pipeline.dataset', 'ycb_bop')
+        self.node.declare_parameter('grasping_pipeline.placement.placement_area', 'table')
         try:
             package_path = get_package_share_directory('grasping_pipeline')
             config_path = Path(package_path + '/config/placement_areas.yaml')
@@ -336,13 +336,13 @@ class GoToAndLookAtPlacementArea(yasmin.State):
         '''
         # Get parameters
         try:
-            dataset = self.node.get_parameter('dataset').value
+            dataset = self.node.get_parameter('grasping_pipeline.dataset').value
         except:
             self.node.get_logger().error('Parameter dataset not found')
             return 'aborted'
 
-        if self.node.has_parameter("placement_area"):
-            placement_area_name = self.node.get_parameter("placement_area").value
+        if self.node.has_parameter("grasping_pipeline.placement.placement_area"):
+            placement_area_name = self.node.get_parameter("grasping_pipeline.placement.placement_area").value
         else:
             placement_area_name = 'predefined'
 

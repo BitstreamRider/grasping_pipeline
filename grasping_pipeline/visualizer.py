@@ -106,7 +106,7 @@ class PoseEstimationVisualizerRos(Node, PoseEstimationVisualizer):
             self.image_height,
             self.intrinsics_matrix
         )
-        dataset = self.get_parameter('dataset').get_parameter_value().string_value
+        dataset = self.get_parameter('grasping_pipeline.dataset').get_parameter_value().string_value
         meshes = []
         for name in request.model_names:
             mesh = self.meshes.get(dataset, {}).get(name, None)
