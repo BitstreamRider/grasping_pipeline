@@ -308,7 +308,8 @@ class GoToAndLookAtPlacementArea(yasmin.State):
         self.timeout = 40.0
         if not self.node.has_parameter('grasping_pipeline.dataset'):
             self.node.declare_parameter('grasping_pipeline.dataset', 'ycb_bop')
-        self.node.declare_parameter('grasping_pipeline.placement.placement_area', 'table')
+        if not self.node.has_parameter('grasping_pipeline.placement.placement_area'):
+            self.node.declare_parameter('grasping_pipeline.placement.placement_area', 'table')
         try:
             package_path = get_package_share_directory('grasping_pipeline')
             config_path = Path(package_path + '/config/placement_areas.yaml')

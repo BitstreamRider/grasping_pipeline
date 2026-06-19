@@ -164,7 +164,7 @@ class FindTablePlanes(yasmin.State):
         blackboard["table_bbs"] = response.plane_bounding_boxes
         blackboard["table_plane_equations"] = response.planes
 
-        if self.node.get_parameter('dataset') == 'tracebotcanister':
+        if self.node.get_parameter('grasping_pipeline.dataset') == 'tracebotcanister':
             
             # Extract plane equation
             a = response.planes[0].x
