@@ -144,6 +144,11 @@ def generate_launch_description():
     package_share_directory = get_package_share_directory('table_plane_extractor')
     config_file = os.path.join(package_share_directory, 'config', 'config.yaml')
     table_config_file = os.path.join(package_share_directory, 'config', 'config.yaml')
+    params_file = os.path.join(
+    get_package_share_directory('grasping_pipeline'),
+        'config',
+        'config.yaml'
+    )
 
     delayed_start_state_machine = TimerAction(
         period=5.0,   # delay in seconds
@@ -154,8 +159,7 @@ def generate_launch_description():
                 name='statemachine',
                 output='screen',
                 emulate_tty=True,
-                parameters=[moveit_dict, {'use_sim_time': True},table_config_file],
-                #prefix=["xterm -fa Monospace -fs 14 -e"],
+                parameters=[moveit_dict, params_file, {'use_sim_time': True},table_config_file],
             )
         ]
     )

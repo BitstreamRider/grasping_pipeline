@@ -141,7 +141,12 @@ def generate_launch_description():
                                        {'use_sim_time': True}],
                            remappings=[('joint_states', '/whole_body/joint_states')]
                            )
-
+    
+    params_file = os.path.join(
+    get_package_share_directory('grasping_pipeline'),
+        'config',
+        'config.yaml'
+    )
 
     table_plane_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -157,35 +162,35 @@ def generate_launch_description():
             executable='image_fetcher',
             name='image_fetcher',
             output='screen',
-            parameters=[{'use_sim_time': True}],
+            parameters=[params_file, {'use_sim_time': True}],
         )
     object_detector = Node(
             package='grasping_pipeline',
             executable='object_detector',
             name='object_detector',
             output='screen',
-            parameters=[{'use_sim_time': True}],
+            parameters=[params_file, {'use_sim_time': True}],
         )
     pose_estimator = Node(
             package='grasping_pipeline',
             executable='pose_estimator',
             name='pose_estimator',
             output='screen',
-            parameters=[{'use_sim_time': True}],
+            parameters=[params_file, {'use_sim_time': True}],
         )
     find_grasppoint_server =  Node(
             package='grasping_pipeline',
             executable='find_grasppoint_server',
             name='find_grasppoint_server',
             output='screen',
-            parameters=[{'model_dir': '/root/ros2_ws/src/grasping_pipeline/models'}, {'use_sim_time': True}],
+            parameters=[params_file, {'model_dir': '/root/ros2_ws/src/grasping_pipeline/models'}, {'use_sim_time': True}],
         )
     execute_grasp_server = Node(
             package='grasping_pipeline',
             executable='execute_grasp_server',
             name='execute_grasp_server',
             output='screen',
-            parameters=[moveit_dict, {'use_sim_time': True}],
+            parameters=[params_file, {'use_sim_time': True}],
     )
 
     visualizer = Node(
@@ -208,7 +213,7 @@ def generate_launch_description():
         executable='place',
         name='place',
         output='screen',
-        parameters=[moveit_dict, {'use_sim_time': True}],
+        parameters=[moveit_dict, params_file, {'use_sim_time': True}],
     )
     
     handover = Node(
@@ -216,7 +221,7 @@ def generate_launch_description():
         executable='handover_srv',
         name='handover',
         output='screen',
-        parameters=[{'use_sim_time': True}],
+        parameters=[params_file, {'use_sim_time': True}],
     )
     
     return LaunchDescription([
