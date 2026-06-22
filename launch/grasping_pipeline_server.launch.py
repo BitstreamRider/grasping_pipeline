@@ -190,7 +190,7 @@ def generate_launch_description():
             executable='execute_grasp_server',
             name='execute_grasp_server',
             output='screen',
-            parameters=[params_file, {'use_sim_time': True}],
+            parameters=[params_file, moveit_dict, {'use_sim_time': True}],
     )
 
     visualizer = Node(
