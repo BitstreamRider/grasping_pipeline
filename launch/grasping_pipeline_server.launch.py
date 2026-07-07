@@ -40,8 +40,8 @@ def generate_launch_description():
     
     description_package_str = 'hsrb_description'
     description_file_str = 'hsrb4s.urdf.xacro'
-    kinematics_yaml = load_yaml('config/kinematics.yaml')
-    sensors_yaml = load_yaml('config/sensors_xtion.yaml')
+    kinematics_yaml = load_yaml('./config/kinematics.yaml', package_name='grasping_pipeline')
+    sensors_yaml = load_yaml('./config/sensors_xtion.yaml', package_name='hsrb_moveit_config')
 
     ompl_planning_pipeline_config = {
     "default_planning_pipeline": "ompl",
@@ -63,7 +63,7 @@ def generate_launch_description():
 
 
     # Merge ompl_planning.yaml contents
-    ompl_planning_pipeline_config.update(load_yaml("config/ompl_planning.yaml"))
+    ompl_planning_pipeline_config.update(load_yaml("config/ompl_planning.yaml", package_name="hsrb_moveit_config"))
 
     move_group_ompl_planning_pipeline_config = {
         'move_group': {
@@ -74,10 +74,10 @@ def generate_launch_description():
                                           'default_planner_request_adapters/FixStartStateCollision',
                                           'default_planner_request_adapters/FixStartStatePathConstraints']),
             'start_state_max_bounds_error': 0.1}}
-    move_group_ompl_planning_pipeline_config['move_group'].update(load_yaml('config/ompl_planning.yaml'))
+    move_group_ompl_planning_pipeline_config['move_group'].update(load_yaml('config/ompl_planning.yaml', package_name='hsrb_moveit_config'))
     moveit_controllers = {
         'moveit_controller_manager': 'moveit_simple_controller_manager/MoveItSimpleControllerManager',
-        'moveit_simple_controller_manager': load_yaml('config/hsrb_controllers.yaml')}
+        'moveit_simple_controller_manager': load_yaml('config/hsrb_controllers.yaml', package_name='hsrb_moveit_config')}
     
     trajectory_execution = {
         'moveit_manage_controllers': True,
@@ -96,34 +96,34 @@ def generate_launch_description():
 
     moveit_robot_description_xml = robot_description.parse(description_package_str, description_file_str)
     moveit_robot_description = {"robot_description": moveit_robot_description_xml}
-    moveit_config = (
-        MoveItConfigsBuilder(
-            robot_name="hsrb",   # must match SRDF robot name
-            package_name="hsrb_moveit_config",
-        )
-        .planning_pipelines("ompl", ["ompl"])
-        .moveit_cpp(
-            get_package_share_directory("grasping_pipeline")
-            + "/config/conf_moveit_cpp.yaml"
-        )
-        .to_moveit_configs()
-    )
-    moveit_dict = moveit_config.to_dict()
-    moveit_dict.update(sensors_yaml)
-    moveit_dict.update(move_group_ompl_planning_pipeline_config)
-    moveit_dict.update(moveit_controllers)
-    moveit_dict.update(trajectory_execution)
-    moveit_dict.update(planning_scene_monitor_parameters)
-    moveit_dict.update(moveit_robot_description)
-    # Inject into moveit dict properly
-    moveit_dict.update(ompl_planning_pipeline_config)
-    moveit_dict.update(kinematics_yaml)
+    # moveit_config = (
+    #     MoveItConfigsBuilder(
+    #         robot_name="hsrb",   # must match SRDF robot name
+    #         package_name="hsrb_moveit_config",
+    #     )
+    #     .planning_pipelines("ompl", ["ompl"])
+    #     .moveit_cpp(
+    #         get_package_share_directory("grasping_pipeline")
+    #         + "/config/conf_moveit_cpp.yaml"
+    #     )
+    #     .to_moveit_configs()
+    # )
+    # moveit_dict = moveit_config.to_dict()
+    # moveit_dict.update(sensors_yaml)
+    # moveit_dict.update(move_group_ompl_planning_pipeline_config)
+    # moveit_dict.update(moveit_controllers)
+    # moveit_dict.update(trajectory_execution)
+    # moveit_dict.update(planning_scene_monitor_parameters)
+    # moveit_dict.update(moveit_robot_description)
+    # # Inject into moveit dict properly
+    # moveit_dict.update(ompl_planning_pipeline_config)
+    # moveit_dict.update(kinematics_yaml)
     
 
-    robot_description_semantic = {'robot_description_semantic': load_file('config/hsrb.srdf')}
-    robot_description_planning = {'robot_description_planning': load_yaml('config/joint_limits.yaml')}
-    moveit_dict.update(robot_description_semantic)
-    moveit_dict.update(robot_description_planning)
+    robot_description_semantic = {'robot_description_semantic': load_file('./config/hsrb.srdf', package_name='hsrb_moveit_config')}
+    robot_description_planning = {'robot_description_planning': load_yaml('./config/joint_limits.yaml', package_name='hsrb_moveit_config')}
+    # moveit_dict.update(robot_description_semantic)
+    # moveit_dict.update(robot_description_planning)
     robot_name={"robot_name": "hsrb"}
     move_group_node = Node(package='moveit_ros_move_group',
                            executable='move_group',
@@ -190,7 +190,15 @@ def generate_launch_description():
             executable='execute_grasp_server',
             name='execute_grasp_server',
             output='screen',
-            parameters=[params_file, moveit_dict, {'use_sim_time': True}],
+            parameters=[
+                        moveit_robot_description,
+                        robot_description_semantic,
+                        robot_description_planning,
+                        kinematics_yaml,
+                        sensors_yaml,
+                        robot_name,
+                         params_file, {'use_sim_time': True}],
+                         remappings=[('joint_states', '/whole_body/joint_states')],
     )
 
     visualizer = Node(
@@ -211,9 +219,17 @@ def generate_launch_description():
     place = Node(
         package='grasping_pipeline',
         executable='place',
-        name='place',
+        name='place_object_server',
         output='screen',
-        parameters=[moveit_dict, params_file, {'use_sim_time': True}],
+        parameters=[
+            moveit_robot_description,
+            robot_description_semantic,
+            robot_description_planning,
+            kinematics_yaml,
+            sensors_yaml,
+            robot_name,
+            params_file, {'use_sim_time': True}],
+            remappings=[('joint_states', '/whole_body/joint_states')],
     )
     
     handover = Node(
@@ -225,10 +241,9 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        SetParameter(name='use_sim_time', value=True),        
-        move_group_node,
-        visualizer,
-        odom_joint_states_publisher,
+        SetParameter(name='use_sim_time', value=True),
+        odom_joint_states_publisher,        
+        visualizer,        
         execute_grasp_server,
         table_plane_launch,
         image_fetcher,

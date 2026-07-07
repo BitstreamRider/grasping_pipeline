@@ -97,11 +97,11 @@ class PlaceObjectServer(Node):
         Creates a TF2Wrapper, MoveitWrapper, HSR_wrapper, and an action server for the place_object
         action.
         '''
-        super().__init__('place_object_server')
+        super().__init__('place_object_server',  automatically_declare_parameters_from_overrides=True)
 
-        self.declare_parameter('grasping_pipeline.placement.method','waypoint')
+        #self.declare_parameter('grasping_pipeline.placement.method','waypoint')
         self.method = self.get_parameter('grasping_pipeline.placement.method').get_parameter_value().string_value
-        self.declare_parameter('grasping_pipeline.placement.max_attempts', 25)
+        #self.declare_parameter('grasping_pipeline.placement.max_attempts', 25)
         self.max_placement_attempts = self.get_parameter('grasping_pipeline.placement.max_attempts').get_parameter_value().integer_value
 
         self.tf2_wrapper = TF2Wrapper(self)

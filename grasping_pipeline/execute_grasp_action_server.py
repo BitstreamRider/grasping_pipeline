@@ -98,9 +98,9 @@ class ExecuteGraspServer(Node):
         '''
         Initialize and starts the action server.
         '''
-        super().__init__('execute_grasp_server')
+        super().__init__('execute_grasp_server',  automatically_declare_parameters_from_overrides=True)
 
-        self.declare_parameter('safety_distance', 0.1)
+        # self.declare_parameter('safety_distance', 0.1)
         self.safety_distance = self.get_parameter('safety_distance').value
 
         self.tf_wrapper = TF2Wrapper(self)

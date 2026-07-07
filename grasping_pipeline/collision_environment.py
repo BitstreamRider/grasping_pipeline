@@ -90,7 +90,7 @@ class CollisionEnvironment(yasmin.State):
         floor.center.position.z = -0.07
         floor.center.orientation.w = ori.w
 
-        size = [15, 15, 0.1]
+        size = [15.0, 15.0, 0.1]
 
         self.moveit_wrapper.add_box('floor', 'map', floor.center, size)
     
@@ -98,7 +98,7 @@ class CollisionEnvironment(yasmin.State):
         '''Call the clear_octomap service'''
         request = Empty.Request()
         future = self.clear_octomap.call_async(request)
-        self.moveit_wrapper.scene.clear_octomap() # Clear the octomap in moveit_py
+        
         # Wait for the service to complete
         timeout_count = 0
         while not future.done() and timeout_count < 100:  # 10 seconds at 10Hz
