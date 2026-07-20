@@ -1,8 +1,10 @@
 #! /usr/bin/env python3
 #!/usr/bin/env python3
 
+import traceback
+
 import rclpy
-from rclpy.node import Node
+from rclpy.node import Node, MutuallyExclusiveCallbackGroup
 from rclpy.action import ActionClient
 from rclpy.qos import qos_profile_sensor_data
 
@@ -14,6 +16,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import CameraInfo
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker
+from actionlib_msgs.msg import GoalStatus
 
 from grasping_pipeline_msgs.srv import CallDirectGraspPoseEstimator
 from robokudo_msgs.action import GenericImgProcAnnotator
@@ -78,13 +81,12 @@ class DirectGraspposeEstimatorCaller(Node):
     grasp_object_name: str
         The name of the object to grasp.
     '''
-    # TODO: remove from comments in code after documenting in thesis
     def __init__(self):
         super().__init__('grasppose_estimator')
 
         self.bridge = CvBridge()
 
-        self.declare_parameter('cam_info_topic', '/hsrb/head_rgbd_sensor/depth_registered/camera_info')
+        self.declare_parameter('cam_info_topic', '/head_rgbd_sensor/depth_registered/camera_info')
         self.declare_parameter('grasping_pipeline.grasppoint_estimator_topic', '/pose_estimator/find_grasppose_haf')
         self.declare_parameter('grasping_pipeline.timeout_duration', 40.0)
         self.cam_topic = self.get_parameter('cam_info_topic').value
@@ -96,6 +98,7 @@ class DirectGraspposeEstimatorCaller(Node):
         self.cam_info = None
         self.wait_for_camera_info()
 
+        self.cbgroup = MutuallyExclusiveCallbackGroup()
         # Service
         self.srv = self.create_service(
             CallDirectGraspPoseEstimator,
@@ -114,7 +117,8 @@ class DirectGraspposeEstimatorCaller(Node):
         self.action_client = ActionClient(
             self,
             GenericImgProcAnnotator,
-            self.action_topic
+            self.action_topic,
+            callback_group=self.cbgroup
         )
 
     '''
@@ -145,7 +149,7 @@ class DirectGraspposeEstimatorCaller(Node):
         self.get_logger().info('CameraInfo received')
 
 
-    def execute(self, request, response):
+    async def execute(self, request, response):
         '''
         Calls the direct grasppose estimator service and returns the grasppose.
 
@@ -174,7 +178,6 @@ class DirectGraspposeEstimatorCaller(Node):
             The response of the service. Contains the name of the object to grasp, the bounding box
             of the object, and the estimated graspposes.
         '''
-        
 
         self.get_logger().info(f'Waiting for direct-grasppose-estimator server with topic: {self.action_topic}')
         if not self.action_client.wait_for_server(timeout_sec=self.timeout):
@@ -207,50 +210,58 @@ class DirectGraspposeEstimatorCaller(Node):
             self.get_logger().error('No mask or bb detections provided! Need at least either one to proceed!')
             return response
         
-        goal = GenericImgProcAnnotatorGoal(
-            rgb=request.rgb, 
-            depth=request.depth, 
-            mask_detections=object_mask, 
-            bb_detections=object_bb, 
-            class_names=[request.class_names[object_idx]]
-        )
+        goal = GenericImgProcAnnotator.Goal()
+        goal.rgb=request.rgb
+        goal.depth=request.depth
+        goal.mask_detections=object_mask
+        goal.bb_detections=object_bb
+        goal.class_names=[request.class_names[object_idx]]
+        
 
-        self.get_logger().debug('Sending goal to direct-grasppose-estimator')
+        self.get_logger().info('Sending goal to direct-grasppose-estimator')
         send_goal_future = self.action_client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, send_goal_future)
-
+        self.get_logger().info('Waiting for direct-grasppose-estimator')
+        await send_goal_future
         
-        goal_handle = send_goal_future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('Grasppose Estimator rejected the goal!')
+
+        goal_handle_client = send_goal_future.result()
+
+        if not goal_handle_client.accepted:
+            self.get_logger().error("direct-grasppose-estimator rejected goal")
             return response
 
-        self.get_logger().debug('Waiting for direct grasppose estimation results')
-        result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future)
-        
+        result_future = goal_handle_client.get_result_async()
+        await result_future
+
         result = result_future.result()
-        if result is None or len(result.result.pose_results) <= 0:
-            self.get_logger().error('Grasppose Estimator failed!')
+
+        if result is None:
+            self.get_logger().error("No result received")
             return response
-        
+
+        pose_result = result.result
+
+        if result.status != GoalStatus.SUCCEEDED + 1 or len(pose_result.pose_results) == 0:
+            self.get_logger().error(f"direct-grasppose-estimator failed with status code: {result.status} and {len(pose_result.pose_results)} pose results")
+            return response
+
+
         graspposes = result.result
         self.get_logger().info(f'Estimated the grasppose of {len(graspposes.class_names)} objects.')
-        
-        assert len(graspposes.pose_results) == 1, 'Expected only one grasppose result, but got more than one!'
+        if not len(graspposes.pose_results) == 1:
+            self.get_logger().error('Expected only one grasppose result, but got more than one!')
+            return response
 
+        grasp_posese = PoseStamped()
+        grasp_posese.header = request.depth.header
+        grasp_posese.pose = graspposes.pose_results[0]
         response.grasp_object_name = request.class_names[object_idx]
         response.grasp_object_bb = bbs_3D[object_idx]
-        response.grasp_poses = [
-            PoseStamped(
-                header=request.depth.header,
-                pose=graspposes.pose_results[0]
-            )
-        ]
+        response.grasp_poses = [grasp_posese]
 
         self.add_bb_marker(response.grasp_object_bb)
         self.add_marker(response.grasp_poses[0])
-
+        self.get_logger().info("finished direct grasppose estimation")
         return response
 
     def get_bb_center_poses(self, bbs):
@@ -289,7 +300,7 @@ class DirectGraspposeEstimatorCaller(Node):
             The 2D bounding boxes of the objects.
         '''
         bbs = []
-        depth_np = ros_numpy.numpify(depth)
+        depth_np = self.bridge.imgmsg_to_cv2(depth, desired_encoding='passthrough')
         if len(masks) > 0:
             for mask in masks:
                 bb = self.get_bb_3D_from_mask(depth, depth_np, mask)
@@ -299,8 +310,7 @@ class DirectGraspposeEstimatorCaller(Node):
                 self.get_bb_3D_from_bb(depth, depth_np, bb)
                 bbs.append(bb)
         else:
-            rospy.logerr('No masks or bbs provided to extract object depth values!')
-            raise rospy.ServiceException
+            self.get_logger().error('No masks or bbs provided to extract object depth values!')
         return bbs
         
     def get_bb_3D_from_mask(self, depth, depth_np, mask):
@@ -321,7 +331,7 @@ class DirectGraspposeEstimatorCaller(Node):
             The 3D bounding box of the object.
         '''
         depth_img_obj = np.full_like(depth_np, np.nan, dtype=np.float32)
-        mask = ros_numpy.numpify(mask)
+        mask = self.bridge.imgmsg_to_cv2(mask, desired_encoding='passthrough')
         mask = mask != 0
         # only copy the object's depth values, rest stay NaN
         depth_img_obj[mask] = depth_np[mask]
@@ -417,7 +427,7 @@ class DirectGraspposeEstimatorCaller(Node):
         """
         marker = Marker()
         marker.header.frame_id = pose_goal.header.frame_id
-        marker.header.stamp = rospy.Time()
+        marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'grasp_marker'
         marker.id = 0
         marker.type = Marker.ARROW
@@ -442,10 +452,10 @@ class DirectGraspposeEstimatorCaller(Node):
 
         marker.color.a = 1.0
         marker.color.r = 1.0
-        marker.color.g = 0
-        marker.color.b = 0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
         self.marker_pub.publish(marker)
-        rospy.loginfo('grasp_marker')
+        self.get_logger().info('grasp_marker')
 
     
     def add_bb_marker(self, object_bb_stamped):
@@ -463,7 +473,7 @@ class DirectGraspposeEstimatorCaller(Node):
         '''
         marker = Marker()
         marker.header.frame_id = object_bb_stamped.header.frame_id
-        marker.header.stamp = rospy.Time()
+        marker.header.stamp = self.get_clock().now().to_msg()
         marker.ns = 'bb_marker'
         marker.id = 0
         marker.type = Marker.CUBE
@@ -473,8 +483,8 @@ class DirectGraspposeEstimatorCaller(Node):
         marker.scale = deepcopy(object_bb_stamped.size)
 
         marker.color.a = 0.5
-        marker.color.r = 0
-        marker.color.g = 0
+        marker.color.r = 0.0
+        marker.color.g = 0.0
         marker.color.b = 1.0
         self.marker_pub.publish(marker)
 
@@ -482,9 +492,12 @@ class DirectGraspposeEstimatorCaller(Node):
 def main():
     rclpy.init()
     node = DirectGraspposeEstimatorCaller()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()

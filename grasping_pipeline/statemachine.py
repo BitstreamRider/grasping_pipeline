@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 import rclpy
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import SingleThreadedExecutor, MultiThreadedExecutor
 import threading
 import yasmin
 from grasping_pipeline.statemachine_components import create_goal_cb, get_robot_setup_sm, get_execute_grasp_sm, get_placement_sm, get_find_grasp_sm, get_object_detector_sm, get_pose_estimator_sm
@@ -103,7 +103,8 @@ def main():
     rclpy.init()
 
     node = rclpy.create_node("sasha_statemachine", automatically_declare_parameters_from_overrides=True)
-    executor = MultiThreadedExecutor()
+    # executor = MultiThreadedExecutor()
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
 
     # Run executor in background thread

@@ -110,11 +110,13 @@ class FindGrasppointServer(Node):
         
         self.declare_parameter('cam_info_topic', '/head_rgbd_sensor/depth_registered/camera_info')
         self.cam_topic = self.get_parameter('cam_info_topic').value
+        self.declare_parameter('grasping_pipeline.timeout_duration',40.0)
+        self.timeout = self.get_parameter('grasping_pipeline.timeout_duration').value
         self.cam_info = None
+        
         self.wait_for_camera_info()
 
-        self.declare_parameter('grasping_pipeline.timeout_duration',40.0)
-        self.timeout = float(self.get_parameter('grasping_pipeline.timeout_duration').value)
+        
         self.grasp_annotator = GraspAnnotator(self)
       
         self.get_logger().info('Initializing FindGrasppointServer done')
@@ -137,9 +139,10 @@ class FindGrasppointServer(Node):
         )
 
         self.get_logger().info(f'Waiting for CameraInfo on {self.cam_topic}...')
-
-        while rclpy.ok() and self.cam_info is None:
+        timeout_cnt = 0
+        while rclpy.ok() and self.cam_info is None and timeout_cnt < self.timeout * 10:
             rclpy.spin_once(self, timeout_sec=0.1)
+            timeout_cnt += 1
 
         if self.cam_info is None:
             raise RuntimeError('CameraInfo not received')

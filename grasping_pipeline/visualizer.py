@@ -5,6 +5,7 @@ import copy
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
+from rclpy.wait_for_message import wait_for_message
 from cv_bridge import CvBridge
 import open3d as o3d
 from v4r_util.rviz_visualization.image_visualization import PoseEstimationVisualizer
@@ -182,18 +183,6 @@ class PoseEstimationVisualizerRos(Node, PoseEstimationVisualizer):
                 meshes[dataset_name][model_name] = mesh
         return meshes
 
-def wait_for_camera_info(node, topic):
-    future = rclpy.task.Future()
-
-    def callback(msg):
-        future.set_result(msg)
-
-    sub = node.create_subscription(CameraInfo, topic, callback, 10)
-
-    rclpy.spin_until_future_complete(node, future)
-    node.destroy_subscription(sub)
-
-    return future.result()
 
 def main(args=None):
     rclpy.init(args=args)
@@ -207,7 +196,9 @@ def main(args=None):
     temp_node = Node('temp_node')
 
     cam_info_topic = '/head_rgbd_sensor/depth_registered/camera_info'
-    cam_info = wait_for_camera_info(temp_node, cam_info_topic)
+    success, cam_info = wait_for_message(CameraInfo, temp_node, cam_info_topic, time_to_wait=10.0)
+    if not success:
+        temp_node.get_logger().error('Timed out waiting for camera info on topic: ' + cam_info_topic)
 
     image_width = cam_info.width
     image_height = cam_info.height

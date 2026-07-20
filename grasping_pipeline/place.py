@@ -21,7 +21,7 @@ from std_msgs.msg import Header
 from vision_msgs.msg import BoundingBox3D, BoundingBox3DArray
 
 # V4R
-from grasping_pipeline.moveit_single_node import MoveItSingleNode
+from grasping_pipeline.moveit_wrapper import MoveitWrapper
 from grasping_pipeline.hsr_wrapper import HSR_wrapper
 from v4r_util.tf2 import TF2Wrapper
 from v4r_util.conversions import bounding_box_to_bounding_box_stamped, list_to_vector3, vector3_to_list, rot_mat_to_quat, quat_to_rot_mat, np_transform_to_ros_transform, np_transform_to_ros_pose
@@ -105,7 +105,7 @@ class PlaceObjectServer(Node):
         self.max_placement_attempts = self.get_parameter('grasping_pipeline.placement.max_attempts').get_parameter_value().integer_value
 
         self.tf2_wrapper = TF2Wrapper(self)
-        self.moveit = MoveItSingleNode.get(self.tf2_wrapper, self)
+        self.moveit = MoveitWrapper(self.tf2_wrapper, self)
         self.hsr_wrapper = HSR_wrapper()
 
         self.action_server = ActionServer(

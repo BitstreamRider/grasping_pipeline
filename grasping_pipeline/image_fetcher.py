@@ -68,9 +68,11 @@ class SynchronizedImageFetcher(Node):
 
 
         self.get_logger().info('Waiting for synchronized images...')
-        while  (self.rgb_image is None or self.depth_image is None):
-           rclpy.spin_once(self, timeout_sec=0.05)
-        
+        timeout_cnt = 0
+        while  (self.rgb_image is None or self.depth_image is None) and timeout_cnt < 200:
+           rclpy.spin_once(self, timeout_sec=0.1)
+           timeout_cnt += 1
+
         self.get_logger().info('Synchronized Images captured!')
 
         # Unregister subscribers to save bandwidth

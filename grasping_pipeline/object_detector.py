@@ -128,8 +128,6 @@ class CallObjectDetectorService(Node):
         future = self.obj_det.send_goal_async(goal)
         self.get_logger().debug('Waiting for object detection results')
         await future
-        #self.result, self.status = future.add_done_callback(self.goal_response_callback)
-        #rclpy.spin_until_future_complete(self, future, timeout_sec=self.timeout)
         
         goal_handle = future.result()
         if goal_handle is None:
@@ -144,7 +142,7 @@ class CallObjectDetectorService(Node):
 
         #Request result
         self.result_future = await goal_handle.get_result_async()
-        #rclpy.spin_until_future_complete(self, result_future, timeout_sec=self.timeout)
+        
 
 
         
@@ -182,34 +180,7 @@ class CallObjectDetectorService(Node):
         
         return res
         
-    def goal_response_callback(self, future):
-        goal_handle = future.result()
-        if goal_handle is None:
-            self.get_logger().error("Goal handle is None, server did not respond")
-            return
         
-        if not goal_handle.accepted:
-            self.get_logger().error("Goal rejected")
-            return
-
-        self.get_logger().info("Goal accepted")
-        
-        #Request result
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.action_result_callback)
-
-    def action_result_callback(self, future):
-        result = future.result().result
-        status = future.result().status
-
-        self.get_logger().info("Got result")
-        if status != GoalStatus.STATUS_SUCCEEDED or len(result.class_names) <= 0:
-            self.get_logger().warn("Object Detector failed to detect objects!")
-            return
-        return result, status
-        
-        
-
         
     
     def convert_label_img_to_2D_BB(self, label_img):
@@ -400,10 +371,6 @@ def check_label_img(self, label_img):
 def main(args=None):
     rclpy.init(args=args)
     node = CallObjectDetectorService()
-    #executor = MultiThreadedExecutor()
-
-    #executor.add_node(node)
-    #executor.spin()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

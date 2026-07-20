@@ -251,14 +251,9 @@ class GoToWaypoint(yasmin.State):
         move_goal.pose.pose.orientation.w = quat[3]
         
         # Wait for action server
-        timeout_count = 0
-        while not self.move_client.wait_for_server(timeout_sec=0.1) and timeout_count < self.timeout * 10:
-            rclpy.spin_once(self.node, timeout_sec=0.1)
-            timeout_count += 1
-        
-        if timeout_count >= self.timeout * 10:
+        while not self.move_client.wait_for_server(timeout_sec=self.timeout):
             self.node.get_logger().error("Could not connect to move server!")
-            return 'aborted'
+            return 'aborted'    
         
         # Send goal
         self.node.get_logger().info("Waiting for result")
@@ -436,12 +431,7 @@ class GoToAndLookAtPlacementArea(yasmin.State):
         move_goal.pose.pose.orientation.w = quat[3]
 
         # Wait for action server
-        timeout_count = 0
-        while not self.move_client.wait_for_server(timeout_sec=0.1) and timeout_count < self.timeout * 10:
-            rclpy.spin_once(self.node, timeout_sec=0.1)
-            timeout_count += 1
-        
-        if timeout_count >= self.timeout * 10:
+        while not self.move_client.wait_for_server(timeout_sec=self.timeout):
             self.node.get_logger().error("Could not connect to move server!")
             return 'aborted'
         

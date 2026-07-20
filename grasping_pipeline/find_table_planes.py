@@ -59,7 +59,7 @@ class FindTablePlanes(yasmin.State):
             )
         self.node.get_logger().info('Waiting for table plane extractor service...')
         self.table_extractor.wait_for_service(timeout_sec=10.0)
-            
+        
         self.tf_wrapper = TF2Wrapper(self.node)
         self.enlarge_table_bb_to_floor = enlarge_table_bb_to_floor
         self.point_cloud = None
@@ -100,7 +100,7 @@ class FindTablePlanes(yasmin.State):
         
         # Wait for point cloud with timeout
         timeout_count = 0
-        while self.point_cloud is None and timeout_count < 600:  # 60 seconds at 10Hz
+        while self.point_cloud is None and timeout_count < 200:  # 20 seconds at 10Hz
             rclpy.spin_once(self.node, timeout_sec=0.1)
             timeout_count += 1
         
@@ -116,12 +116,12 @@ class FindTablePlanes(yasmin.State):
         request.point_cloud = cloud
         
         future =  self.table_extractor.call_async(request)
-
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=40.0)
         # Wait for the service to complete
         timeout_count = 0
-        while not future.done(): # 60 seconds at 10Hz increased for sim testing
-            rclpy.spin_once(self.node, timeout_sec=0.1)
-            timeout_count += 1
+        # while not future.done() and timeout_count < 600: # 60 seconds at 10Hz increased for sim testing
+        #     rclpy.spin_once(self.node, timeout_sec=0.1)
+        #     timeout_count += 1
         
         if not future.done():
             self.node.get_logger().error('Timeout waiting for table plane extractor service')

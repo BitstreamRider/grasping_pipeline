@@ -197,8 +197,8 @@ def generate_launch_description():
                         kinematics_yaml,
                         sensors_yaml,
                         robot_name,
-                         params_file, {'use_sim_time': True}],
-                         remappings=[('joint_states', '/whole_body/joint_states')],
+                        params_file, {'use_sim_time': True}],
+                        remappings=[('joint_states', '/whole_body/joint_states')],
     )
 
     visualizer = Node(
@@ -209,12 +209,12 @@ def generate_launch_description():
         arguments=['/root/ros2_ws/src/grasping_pipeline/models']
     )
 
-    odom_joint_states_publisher = Node(package='hsrb_moveit_config',
-                                       executable='odom_joint_states_publisher.py',
-                                       name='odom_joint_states_publisher',
-                                       parameters=[{'use_sim_time': True}],
-                                       remappings=[('odom_joint_states', '/whole_body/joint_states')]
-                                    )
+    # odom_joint_states_publisher = Node(package='hsrb_moveit_config',
+    #                                    executable='odom_joint_states_publisher.py',
+    #                                    name='odom_joint_states_publisher',
+    #                                    parameters=[{'use_sim_time': True}],
+    #                                    remappings=[('odom_joint_states', '/whole_body/joint_states')]
+    #                                 )
     
     place = Node(
         package='grasping_pipeline',
@@ -239,11 +239,30 @@ def generate_launch_description():
         output='screen',
         parameters=[params_file, {'use_sim_time': True}],
     )
+
+    direct_grasppose = Node(
+        package='grasping_pipeline',
+        executable='direct_estimator',
+        name='direct_estimator',
+        output='screen',
+        parameters=[params_file, {'use_sim_time': True}],
+    )
+
+    haf_grasping_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('haf_grasping'),
+                'launch',
+                'haf_grasping_all.launch.py'
+            )
+        )
+    )
     
     return LaunchDescription([
-        SetParameter(name='use_sim_time', value=True),
-        odom_joint_states_publisher,        
-        visualizer,        
+        SetParameter(name='use_sim_time', value=True),   
+        visualizer,
+        direct_grasppose,
+        haf_grasping_launch,        
         execute_grasp_server,
         table_plane_launch,
         image_fetcher,

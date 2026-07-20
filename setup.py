@@ -16,6 +16,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
         (os.path.join('share', package_name, 'config'),  glob('config/*')),
+        (os.path.join('share', package_name, 'grasps/ycb_bop'),  glob('grasps/ycb_bop/*')),
+        (os.path.join('share', package_name, 'grasps/ycb_ichores'),  glob('grasps/ycb_ichores/*')),
         
     ],
     install_requires=['setuptools'],
@@ -36,6 +38,7 @@ setup(
         'image_fetcher = grasping_pipeline.image_fetcher:main',
         'object_detector = grasping_pipeline.object_detector:main',
         'pose_estimator = grasping_pipeline.pose_estimator:main',
+        'direct_estimator = grasping_pipeline.direct_grasppose_estimator:main',
         'find_grasppoint_server = grasping_pipeline.grasppose_estimator:main',
         'visualizer = grasping_pipeline.visualizer:main',
         'execute_grasp_server = grasping_pipeline.execute_grasp_action_server:main',

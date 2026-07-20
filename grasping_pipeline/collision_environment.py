@@ -1,5 +1,4 @@
 #! /usr/bin/env python3
-
 import rclpy
 import yasmin
 from hsrb_interface import Robot
@@ -10,7 +9,6 @@ from geometry_msgs.msg import PoseStamped
 from vision_msgs.msg import BoundingBox3D
 from v4r_util.conversions import vector3_to_list
 from grasping_pipeline.moveit_wrapper import MoveitWrapper
-from grasping_pipeline.moveit_single_node import MoveItSingleNode
 from v4r_util.tf2 import TF2Wrapper
 
 
@@ -50,18 +48,12 @@ class CollisionEnvironment(yasmin.State):
         super().__init__(['succeeded'])
         self.node = node
         self.tf_wrapper = TF2Wrapper(self.node)
-        #timeout_cnt = 0
-        #while timeout_cnt < 150: #delay so that tf buffer can fill up.
-        #    rclpy.spin_once(self.node, timeout_sec=0.1)
-        #    timeout_cnt += 1
         self.moveit_wrapper = moveit_wrapper
-        
-        
+
         self.moveit_wrapper.detach_all_objects()
         self.clear_octomap = self.node.create_client(Empty, '/clear_octomap')
         while not self.clear_octomap.wait_for_service(timeout_sec=2.0):
             self.node.get_logger().info('Waiting for clear_octomap service...')
-
         # Add floor plane to filter weird octomap points in floor that prevent the robot from moving 
         # because of 'collisions' with the floor
         self.add_floor_plane()

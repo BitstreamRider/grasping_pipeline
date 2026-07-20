@@ -4,8 +4,7 @@ from urllib import response
 from cv_bridge import CvBridge
 import rclpy
 from rclpy.node import Node, MutuallyExclusiveCallbackGroup
-from rclpy.action import ActionClient, ActionServer
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.action import ActionClient
 from actionlib_msgs.msg import GoalStatus
 from robokudo_msgs.action import GenericImgProcAnnotator
 from grasping_pipeline_msgs.srv import CallPoseEstimator, VisualizePoseEstimation
@@ -193,9 +192,6 @@ def main(args=None):
     rclpy.init(args=args)
 
     node = CallPoseEstimatorService()
-
-    #executor = MultiThreadedExecutor()
-    #executor.add_node(node)
 
     try:
         rclpy.spin(node)

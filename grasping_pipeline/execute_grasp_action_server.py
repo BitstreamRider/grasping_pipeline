@@ -16,7 +16,6 @@ from v4r_util.util import rotmat_around_axis
 from v4r_util.conversions import ros_pose_to_np_transform, np_transform_to_ros_pose, point_to_vector3
 from grasping_pipeline.moveit_wrapper import MoveitWrapper
 from grasping_pipeline.hsr_wrapper import HSR_wrapper
-from grasping_pipeline.moveit_single_node import MoveItSingleNode
 from geometry_msgs.msg import Pose, PoseStamped, Transform
 from visualization_msgs.msg import Marker
 from grasping_pipeline_msgs.action import ExecuteGrasp
@@ -105,7 +104,7 @@ class ExecuteGraspServer(Node):
 
         self.tf_wrapper = TF2Wrapper(self)
         self.get_logger().info("Execute grasp: Waiting for moveit")
-        self.moveit_wrapper = MoveItSingleNode.get(self.tf_wrapper, self)
+        self.moveit_wrapper = MoveitWrapper(self.tf_wrapper, self)
         self.get_logger().info("Execute grasp: Got Moveit")
         self.hsr_wrapper = HSR_wrapper()
         
@@ -199,19 +198,11 @@ class ExecuteGraspServer(Node):
                 continue
 
             self.hsr_wrapper.move_eef_by_line((0, 0, 1), safety_distance)
-            # replaces rospy.sleep()
-            # timout_counter = 0
-            # while timout_counter < 200:
-            #      rclpy.spin_once(self, timeout_sec=0.1)
-            #      timout_counter += 1
+            # removed rospy.sleep() can be replaced with time.sleep() if needed, but should not be necessary
 
             self.get_logger().info("Execute grasp: hsr grasp")
             self.hsr_wrapper.gripper_grasp_hsr(0.5)
-            # timout_counter = 0
-            # while timout_counter < 200:
-            #      rclpy.spin_once(self, timeout_sec=0.1)
-            #      timout_counter += 1
-
+            # removed rospy.sleep()
             if goal.grasp_object_name_moveit is not None and goal.grasp_object_name_moveit != "":
                 transform = self.get_transform_from_wrist_to_object_bottom_plane(
                     goal.grasp_object_name_moveit, 
