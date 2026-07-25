@@ -47,12 +47,16 @@ class SynchronizedImageFetcher(Node):
         self.rgb_image = None
         self.depth_image = None
 
-        rgb_topic = self.get_parameter('rgb_topic').value
-        depth_topic = self.get_parameter('depth_topic').value
+        self.rgb_topic = self.get_parameter('rgb_topic').value
+        self.depth_topic = self.get_parameter('depth_topic').value
 
-        self.rgb_sub = Subscriber(self, Image, rgb_topic)
-        self.depth_sub = Subscriber(self, Image, depth_topic)
-        self.ats = ApproximateTimeSynchronizer([self.rgb_sub, self.depth_sub], queue_size=5, slop=2.0)
+        self.create_subscribers()
+
+    def create_subscribers(self):
+        self.rgb_sub = Subscriber(self, Image, self.rgb_topic)
+        self.depth_sub = Subscriber(self, Image, self.depth_topic)
+        self.ats = ApproximateTimeSynchronizer(
+            [self.rgb_sub, self.depth_sub], queue_size=5, slop=2.0)
         self.ats.registerCallback(self.callback)
 
     def fetch(self, req, response):
@@ -65,24 +69,26 @@ class SynchronizedImageFetcher(Node):
         FetchImagesResponse
             Response containing the synchronized RGB and Depth images
         '''
-
-
+        self.create_subscribers()
         self.get_logger().info('Waiting for synchronized images...')
         timeout_cnt = 0
-        while  (self.rgb_image is None or self.depth_image is None) and timeout_cnt < 200:
+        while  (self.rgb_image is None and self.depth_image is None) and timeout_cnt < 200:
            rclpy.spin_once(self, timeout_sec=0.1)
            timeout_cnt += 1
-
+        if timeout_cnt >=200:
+            self.get_logger().error('Timeout fetching the images!')    
         self.get_logger().info('Synchronized Images captured!')
 
-        # Unregister subscribers to save bandwidth
-        #rgb_sub.subscriber.destroy()
-        #depth_sub.subscriber.destroy()
+        
 
         response = FetchImages.Response()
         response.rgb = self.rgb_image
         response.depth = self.depth_image
 
+
+        # Unregister subscribers to save bandwidth
+        self.rgb_sub.destroy()
+        self.depth_sub.destroy()
         # Reset stored images for next request
         self.rgb_image = None
         self.depth_image = None
