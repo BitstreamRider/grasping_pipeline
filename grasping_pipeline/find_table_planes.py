@@ -2,6 +2,7 @@ import rclpy
 import numpy as np
 from rclpy.node import MutuallyExclusiveCallbackGroup
 from rclpy.qos import QoSProfile, DurabilityPolicy
+from rclpy.wait_for_message import wait_for_message
 import yasmin
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import Point, PointStamped
@@ -63,13 +64,7 @@ class FindTablePlanes(yasmin.State):
         self.tf_wrapper = TF2Wrapper(self.node)
         self.enlarge_table_bb_to_floor = enlarge_table_bb_to_floor
         self.point_cloud = None
-        self.point_cloud_subscription = self.node.create_subscription(
-            PointCloud2,
-            self.topic,
-            self._point_cloud_callback,
-            qos_profile_sensor_data
-        )
-
+        
         qos = QoSProfile(depth=1)
         qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
 
@@ -97,18 +92,31 @@ class FindTablePlanes(yasmin.State):
         'succeeded': The state succeeded.
         '''
         self.node.get_logger().info('Executing state FIND_TABLE_PLANES. Waiting for point cloud.')
+        # subscribe only when executing to save bw
+        # self.point_cloud_subscription = self.node.create_subscription(
+        #             PointCloud2,
+        #             self.topic,
+        #             self._point_cloud_callback,
+        #             qos_profile_sensor_data
+        #         )
         
         # Wait for point cloud with timeout
         timeout_count = 0
-        while self.point_cloud is None and timeout_count < 200:  # 20 seconds at 10Hz
-            rclpy.spin_once(self.node, timeout_sec=0.1)
-            timeout_count += 1
-        
-        if self.point_cloud is None:
+        success, self.point_cloud = wait_for_message(PointCloud2, self.node, self.topic, time_to_wait=60.0, qos_profile = qos_profile_sensor_data)
+        if not success:
             self.node.get_logger().error('Timeout waiting for point cloud')
             return 'succeeded'
         
+        # while self.point_cloud is None and timeout_count < 600:  # 60 seconds at 10Hz
+        #     rclpy.spin_once(self.node, timeout_sec=0.1)
+        #     timeout_count += 1
+        
+        # if self.point_cloud is None:
+        #     self.node.get_logger().error('Timeout waiting for point cloud')
+        #     return 'succeeded'
+        
         cloud = self.point_cloud
+        # self.node.destroy_subscription(self.point_cloud_subscription)
         self.node.get_logger().info('Received point cloud. Calling table plane extractor service.')
         
         # Call the service
