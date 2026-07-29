@@ -34,7 +34,7 @@ tmux send-keys "ros2 launch grasping_pipeline grasping_pipeline_server.launch.py
 
 tmux select-pane -t 3
 tmux send-keys "hsrb_mode" C-m
-tmux send-keys rv
+tmux send-keys rviz2 -d $(ros2 pkg prefix grasping_pipeline)/share/grasping_pipeline/config/grasping_pipeline.rviz
 tmux split-window -v
 tmux select-pane -t 4
 tmux send-keys "ssh v4r@hsrb.local" C-m
