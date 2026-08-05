@@ -23,7 +23,8 @@ tmux send-keys "source /root/hsr_ros2_ws/install/setup.bash" C-m
 tmux send-keys "ros2 launch grasping_pipeline grasping_pipeline_statemachine.launch.py"
 
 tmux select-pane -t 1
-tmux send-keys "source $SCRIPT_DIR/../../../devel/setup.bash" C-m
+tmux send-keys "hsrb_mode" C-m
+tmux send-keys "source /root/hsr_ros2_ws/install/setup.bash" C-m
 tmux send-keys "ros2 launch grasping_pipeline grasping_pipeline_server.launch.py"
 # tmux split-window -v
 # tmux select-pane -t 2
