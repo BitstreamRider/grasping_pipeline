@@ -225,7 +225,7 @@ class GoToWaypoint(yasmin.State):
         '''
         super().__init__(['succeeded', 'aborted'])
         self.node = node
-        self.move_client = ActionClient(self.node,  NavigateToPose, '/navigate_to_pose')
+        self.move_client = ActionClient(self.node,  NavigateToPose, '/move_base/move')
         node.get_logger().info("got move action server...")
         self.robot = Robot(node)
         node.get_logger().info("got robot...")
@@ -251,7 +251,7 @@ class GoToWaypoint(yasmin.State):
         move_goal.pose.pose.orientation.w = quat[3]
         
         # Wait for action server
-        while not self.move_client.wait_for_server(timeout_sec=self.timeout):
+        if not self.move_client.wait_for_server(timeout_sec=self.timeout):
             self.node.get_logger().error("Could not connect to move server!")
             return 'aborted'    
         
@@ -269,14 +269,14 @@ class GoToWaypoint(yasmin.State):
         if not goal_handle.accepted:
             self.node.get_logger().error("Move goal was rejected!")
             return 'aborted'
-        
+        self.node.get_logger().info("Goal accepted!")
         result_future = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self.node, result_future, timeout_sec=self.timeout)
         
         if not result_future.done():
             self.node.get_logger().error("Move server execution timed out!")
             return 'aborted'
-        
+
         # wait for robot to settle down
         time.sleep(1.0)
         return 'succeeded'

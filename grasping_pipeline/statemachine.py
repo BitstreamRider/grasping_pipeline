@@ -18,7 +18,8 @@ def create_statemachine(node, do_handover=True):
     tf_wrapper = TF2Wrapper(node)
     moveit_wrapper = MoveitWrapper(tf_wrapper, node)
 
-    table_waypoint = GoToWaypoint(node, 0.50, 0.4, 0)
+    # table_waypoint = GoToWaypoint(node, 0.53, 0.42, 0, "map")
+    table_waypoint = GoToWaypoint(node, 0.33, 0.42, 0, "map")
     setup_sm = get_robot_setup_sm(table_waypoint, node)
     find_grasp_sm = get_find_grasp_sm(node)
     execute_grasp_sm = get_execute_grasp_sm(table_waypoint, node, moveit_wrapper)
