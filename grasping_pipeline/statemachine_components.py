@@ -44,14 +44,14 @@ def get_robot_setup_sm(setup_waypoint, node):
     '''
     
     sm = yasmin.StateMachine(outcomes=['setup_succeeded', 'setup_failed'], handle_sigint=True)
-    #sm.add_state(
-    #    "GO_TO_TABLE",
-    #    setup_waypoint, 
-    #    transitions={
-    #        "aborted": "GO_TO_TABLE",
-    #        "succeeded" : "GO_TO_NEUTRAL",
-    #    },
-    #)
+    sm.add_state(
+       "GO_TO_TABLE",
+       setup_waypoint, 
+       transitions={
+           "aborted": "GO_TO_TABLE",
+           "succeeded" : "GO_TO_NEUTRAL",
+       },
+    )
     sm.add_state(
         "GO_TO_NEUTRAL",
         GoToNeutral(node), 
