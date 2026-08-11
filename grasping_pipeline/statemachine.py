@@ -49,7 +49,7 @@ def get_clear_table_sm(table_waypoint, object_detector_sm, pose_estimator_sm, ex
     
     #TODO test with combination of placement + handover, instead of only handover
     sm.add_state('CHECK_TOP_GRASP', CheckTopGrasp(node), transitions={'top_grasp': 'HANDOVER', 'not_top_grasp': 'HANDOVER'})
-    handover_action = yasmin_ros.ActionState(Handover, '/handover', create_goal_handler=create_goal_cb(Handover, ['grasp_object_name']))
+    handover_action = yasmin_ros.ActionState(Handover, '/handover', create_goal_handler=create_goal_cb(Handover, ['object_name']))
     sm.add_state(
         'HANDOVER', 
         handover_action,
@@ -83,7 +83,7 @@ def get_single_grasp_sm(table_waypoint, find_grasp_sm, execute_grasp_sm, placeme
             'h': ['handover', 'handover object']}
     sm.add_state('AFTER_GRASP_USERINPUT', UserInput(node, map), transitions={'placement': 'PLACEMENT', 'handover': 'HANDOVER'})
 
-    handover_action = yasmin_ros.ActionState(Handover, '/handover', create_goal_handler=create_goal_cb(Handover, ['grasp_object_name']))
+    handover_action = yasmin_ros.ActionState(Handover, '/handover', create_goal_handler=create_goal_cb(Handover, ['object_name']))
     sm.add_state(
         'HANDOVER',
         handover_action,

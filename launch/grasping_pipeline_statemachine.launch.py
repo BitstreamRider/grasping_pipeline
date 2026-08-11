@@ -137,7 +137,7 @@ def generate_launch_description():
                      executable='static_transform_publisher',
                      name='static_transform_publisher',
                      output='screen',
-                     arguments=['0', '0', '0', '0', '0', '0', 'odom ', 'map'],
+                     arguments=['0', '0', '0', '0', '0', '0', 'odom', 'map'],
                      parameters=[{'use_sim_time': True}],
                     )
     
@@ -164,6 +164,6 @@ def generate_launch_description():
         ]
     )
     return LaunchDescription([
-        SetParameter(name='use_sim_time', value=True),        
+        SetParameter(name='use_sim_time', value=False),        
         delayed_start_state_machine
     ])

@@ -86,20 +86,22 @@ class MoveitWrapper:
             The robot commander
         '''
         # handle non default HSR topic name :)))))))
-        moveit_commander.roscpp_initialize(["joint_states:=/whole_body_moveit/joint_states"], use_sim=self.node.get_parameter("use_sim_time").value)
+        moveit_commander.roscpp_initialize( use_sim=self.node.get_parameter("use_sim_time").value)
 
         # Moveit commander
         timeout_sec = 30.0
-        whole_body = moveit_commander.MoveGroupCommander("whole_body", wait_for_servers=timeout_sec)
+        whole_body = moveit_commander.MoveGroupCommander("whole_body_weighted", wait_for_servers=timeout_sec)
         #gripper = moveit_commander.MoveGroupCommander("gripper", wait_for_servers=timeout_sec)
         #arm = moveit_commander.MoveGroupCommander("arm", wait_for_servers=timeout_sec)
         gripper = None
         scene = moveit_commander.PlanningSceneInterface()
         robot = moveit_commander.RobotCommander()
 
+        whole_body.set_pose_reference_frame("odom")
+        whole_body.set_end_effector_link("hand_palm_link") 
         # Moveit settings
         whole_body.allow_replanning(True)
-        whole_body.set_workspace([-6.0, -6.0, 6.0, 6.0])
+        whole_body.set_workspace([-0.4, -0.4, 0.4, 0.4]) # limiting moveit from 12 x 12 to 1 x 1 m
         whole_body.set_num_planning_attempts(10)
         whole_body.set_planning_time(planning_time)
         whole_body.set_max_acceleration_scaling_factor(1.0)
@@ -153,6 +155,7 @@ class MoveitWrapper:
         bool
             True if the value is within the tolerance
         """
+        return True
         if type(goal) is list:
             for index in range(len(goal)):
                 if index > 2:

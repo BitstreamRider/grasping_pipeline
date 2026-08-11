@@ -38,7 +38,7 @@ class UserInput(yasmin.State):
         self.node = node
         self.map = key_outcome_description
         self.data =  None
-        self.subscription = self.node.create_subscription(String, 'user_input', self.listener_callback, 10)
+        self.subscription = self.node.create_subscription(String, 'user_input', self.listener_callback, 1)
         
         outcomes = []
         descriptions = []
@@ -91,12 +91,14 @@ class UserInput(yasmin.State):
         str
             The outcome corresponding to the key pressed by the user.
         '''
+        self.data = None
         self.node.get_logger().info("Waiting for user_input publisher...")
-        while not self.data:
-            rclpy.spin_once(self.node, timeout_sec=0.1)
         while rclpy.ok():
+            while not self.data:
+                        rclpy.spin_once(self.node, timeout_sec=0.1)
             user_input = self.data
             self.data = None
+
             if len(user_input) != 1:
                 print('Please enter only one character')
                 continue
@@ -104,6 +106,7 @@ class UserInput(yasmin.State):
             if char_input not in self.map:
                 print('Invalid key!')
                 continue
+            
             return self.map[char_input][0]
 
 

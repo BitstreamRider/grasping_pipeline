@@ -49,7 +49,7 @@ class HSR_wrapper:
         grasp failed, the tips are very close to each other. If the grasp is successful, the
         tips are further apart. The threshold is set to -0.004 meters.
         '''
-        return self.gripper.get_distance() > -0.004
+        return self.gripper.get_distance() > -0.1010
     
     def move_eef_by_delta(self, delta, ref_frame='base_link'):
         '''

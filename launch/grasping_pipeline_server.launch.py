@@ -259,7 +259,7 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        SetParameter(name='use_sim_time', value=True),   
+        SetParameter(name='use_sim_time', value=False),   
         visualizer,
         direct_grasppose,
         haf_grasping_launch,        
