@@ -7,7 +7,9 @@ Welcome to Grasping Pipeline's documentation!
 =============================================
 
 The Grasping Pipeline implements a somewhat modular pipeline for grasping, placing and handing over objects with the Toyota HSR robot. 
-The pipeline is implemented in Python and uses the Robot Operating System (ROS) for communication with the robot.
+The pipeline is implemented in Python and is now using the Robot Operating System 2 (ROS2) for communication with the robot.
+
+.. note:: The current ROS2 version is ros2 humble (build for ubuntu 22.04LTS). Upgrading the ros2 version should be straight forward, but different ros2 version cannot talk to each other (changes in message serialization).
 
 .. note:: This documentation is a work in progress.
 
@@ -17,6 +19,7 @@ The pipeline is implemented in Python and uses the Robot Operating System (ROS) 
    :caption: Contents:
 
    installation
+   switching_ros_version
    startup
    adding_new_estimators
    adding_new_objects

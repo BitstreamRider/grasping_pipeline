@@ -9,7 +9,7 @@
 # Add the source folder to the path to be able to automatically generate the API documentation
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join('..', '..', 'src')))
+sys.path.insert(0, os.path.abspath(os.path.join('..', '..', 'grasping_pipeline')))
 
 project = "Grasping Pipeline"
 copyright = "2024, Alexander Haberl"
@@ -35,12 +35,13 @@ exclude_patterns = []
 
 # Mock packages that are not available when building the documentation, aka all ROS packages
 # This is the case because autodoc imports the modules instead of just parsing the docstrings, because python is a dynamic language 
-autodoc_mock_imports = ['hsrb_interface', 'rospy', 'tf', 'smach', 'actionlib', 'smach_ros', 'sensor_msgs', 'std_srvs', 'geometry_msgs', 
+autodoc_mock_imports = ['hsrb_interface', 'rospy','rclpy', 'tf2_ros', 'tf_transformations', 'yasmin', 'actionlib', 'yasmin_ros', 'sensor_msgs', 'std_srvs', 'geometry_msgs', 
                         'table_plane_extractor', 'move_base_msgs', 'vision_msgs', 'v4r_util', 'grasping_pipeline_msgs', 'moveit_commander', 
                         'moveit_msgs', 'trajectory_msgs', 'numpy', 'handover', 'yaml', 'open3d', 'ros_numpy', 'visualization_msgs', 
                     'message_filters', 'std_msgs', 'robot_llm', 'object_detector_msgs', 'PyKDL', 'tmc_geometric_shapes_msgs',
                     'tf_conversions', 'tmc_placement_area_detector', 'robokudo_msgs', 'cv_bridge', 'actionlib_msgs', 'cv2', 'matplotlib', 'open3d_ros_helper',
-                    'transforms3d', 'scipy']
+                    'transforms3d', 'scipy', 'grasping_pipeline', 'smach', 'smach_ros', 'ament_index_python', 'nav2_msgs', 
+                    'tmc_manipulation_msgs', 'sensor_msgs_py']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

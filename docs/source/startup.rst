@@ -3,11 +3,19 @@ Starting the grasping pipeline
 
 This page will tell you how to start the grasping pipeline. It will also explain how to use the tmux session that is created when starting the grasping pipeline. It will also explain how to start the grasping-pipeline rviz visualization and which visualization topics exist.
 
+.. note::
+    Make sure to set your `ROS_DOMAIN_ID` to 1 to communicate with the robot and add check that your ip-address is added to the cyclone_dds configuration.
+
 .. note:: 
    Some of the upcoming commands need to be run locally, while others need to be run on the robot (via ssh). You can check the location of your terminal by looking at the command prompt. 
    - If the command prompt starts with ``user@host`` (with host being most likely `robbie` or `raufbold`) you are running the command locally **outside** the container.
-   - If the command prompt starts with ``<hsrb>`` you are running the command locally **inside** the container.
+   
+   .. TODO - If the command prompt starts with ``<hsrb>`` you are running the command locally **inside** the container.
+   
    - If the command prompt starts with ``v4r@hsrb`` you are running the command on the robot (via ssh).
+   
+   .. TODO it needs to run on sasha but also in a container
+
 
 ********************
 Turning on the robot
@@ -17,7 +25,11 @@ Before starting the grasping pipeline, you should turn on the robot.
 .. note:: 
    When you start the grasping pipeline, a window will open displaying the commands listed in this section. You don't need to run these commands manually beforehand. However, they are explained here because they are necessary if a user wishes to use the HSR without the grasping pipeline. For more details, see `our repository <https://github.com/v4r-tuwien/hsr_startup>`_. 
 
-After the robot is turned on, you have to manually start the startup procedure of the robot which aligns the robot with the pre-recorded map of the environment. 
+.. note::
+    After starting the robot, make sure to switch the robot to ros2.
+
+
+After the robot is turned on and switched to ros2, you have to manually start the startup procedure of the robot which aligns the robot with the pre-recorded map of the environment. 
 This is necessary so that the waypoints work as expected. 
 
 To start the startup procedure, you first have to ssh into the robot. Ask other team members for the password.:
@@ -26,7 +38,7 @@ To start the startup procedure, you first have to ssh into the robot. Ask other 
 
     $ ssh v4r@hsrb.local
 
-After you are connected to the robot, you can start the startup procedure by running the following command:
+After you are connected to the robot, you can start the startup procedure by running the following command: ..TODO this command needs to run inside the docker container: should we prepare a script/command/docker-compose that makes this work?
 
 .. code-block:: console
 
@@ -55,8 +67,8 @@ If you set up the grasping pipeline according to the installation instructions, 
 
    .. code-block:: console
 
-       user@host         $ hsr
-       root@CONTAINER_ID $ gp 
+       user@host         $ hsr2
+       root@CONTAINER_ID $ gp2
     
 This should open up a tmux session.
 
@@ -95,6 +107,8 @@ The first window is split into five panes:
 - **Grasping Pipeline: RViz**: RViz visualization
 - **Grasping Pipeline: Parameter launch**: Here a launch file is used to publish all ROS parameters
 - **Startup**: This is where the startup script (from the previous section) can be used. This terminal is connected to the HSR, which is why using an SSH key is recommended.
+
+.. warning:: this needs an update ..TODO update
 
 .. note::
     Generally, most nodes are running locally because the development computer is much more powerful than sasha. 

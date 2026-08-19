@@ -1,9 +1,7 @@
-Installation
-============
+.. _installation-ros1:
 
-.. note:: This only covers the installation of the ros2 environment. For the installation of the outdated ros1 environment please see the ros1 branch of this repository
-
-.. warning:: This is not yet fully updated to ros2
+Installation for ros1
+=====================
 
 You can install the grasping pipeline in two ways:
 
@@ -11,48 +9,11 @@ You can install the grasping pipeline in two ways:
 
 2. Manually installing the grasping pipeline and all its dependencies
 
-.. note:: 
-    Sasha uses `ROS_DOMAIN_ID=1`, to talk to the robot you also need to set `ROS_DOMAIN_ID=1`. When using the simulator make sure to use a different `ROS_DOMAIN_ID` to avoid accidentally sending commands to the robot.
-
-    When using a private laptop instead of *robbie* or *raufbold* it is necessary to add the ip address of the laptop to the cyclone_dds configuration on the robot. The configuration file is located at `/etc/opt/tmc/robot/cyclonedds_profile.xml`. The file should look like this:
-
-    .. code-block:: xml
-
-        <CycloneDDS>
-            <Domain id="any">
-                <Internal>
-                    <SocketReceiveBufferSize min="10MB"/>
-                    <Watermarks>
-                        <WhcHigh>500kB</WhcHigh>
-                    </Watermarks>
-                </Internal>
-                <General>
-                    <AllowMulticast>false</AllowMulticast>
-                    <MaxMessageSize>1500B</MaxMessageSize>
-                </General>
-                <Discovery>
-                    <ParticipantIndex>auto</ParticipantIndex>
-                    <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
-                    <Peers>
-                        <Peer Address="10.0.0.102"/>
-                        <Peer Address="10.0.0.143"/>
-                        <Peer Address="10.0.0.221"/>
-                        <Peer Address="ADD YOUR IP ADDRESS HERE"/>
-                    </Peers>
-                </Discovery>
-            </Domain>
-        </CycloneDDS>
-
-    After changing the dds configuration all ros2 nodes need to be restarted.
-
-
 ****************************************
 Using the grasping pipeline docker image
 ****************************************
 
 This is the easiest way to get started with the grasping pipeline, but comes with the drawback that it does not run natively on the host. This especially means that you are more likely to experience issues regarding the network setup with ROS.
-
-.. note:: The network passthrough with docker and cyclonedds only works on native linux host environments. It does not work on windows using wsl2.
 
 The instructions can be found in the `HSRB_ROS_Docker_Image repository <https://github.com/v4r-tuwien/HSRB-ROS-Docker-Image>`_.
 
@@ -61,9 +22,9 @@ The instructions can be found in the `HSRB_ROS_Docker_Image repository <https://
 
    .. code-block:: console
 
-      $ ..TODO update echo "alias hsr2='cd ~/HSR/ && bash ./RUN-DOCKER-CONTAINER.bash'" >> ~/.bashrc
+      $ echo "alias hsr='cd ~/HSR/ && bash ./RUN-DOCKER-CONTAINER.bash'" >> ~/.bashrc
 
-   This allows you to start the docker container by simply typing `hsr2` in the terminal.
+   This allows you to start the docker container by simply typing `hsr` in the terminal.
 
    After adding the alias, source the new .bashrc file:
 
@@ -71,30 +32,27 @@ The instructions can be found in the `HSRB_ROS_Docker_Image repository <https://
 
        $ source ~/.bashrc
 
-
-..TODO network configuration ?? what needs to be set ? (why?, should there be a script for this?)
-
 ******************************************************************
 Manually installing the grasping pipeline and all its dependencies
 ******************************************************************
 This option assumes that you already have installed:
 
-* ROS2 humble and the most common ROS packages (ros-humble-desktop)
-* ..TODO toyota HSR packages, need to be built from source
-* moveit (ros-noetic-moveit), ..TODO moveit python needs to be built ??
-* vision-msgs (ros-noetic-vision-msgs) ..TODO check, should be in desktop install
-* tf2-sensor-msgs (ros-noetic-tf2-sensor-msgs) ..TODO check, should be in desktop install
-* ros-numpy (ros-noetic-ros-numpy) ..TODO still in use?
+* ROS noetic and the most common ROS packages (ros-noetic-desktop-full)
+* The toyota HSR packages (ros-noetic-tmc-desktop-full)
+* moveit (ros-noetic-moveit)
+* vision-msgs (ros-noetic-vision-msgs)
+* tf2-sensor-msgs (ros-noetic-tf2-sensor-msgs)
+* ros-numpy (ros-noetic-ros-numpy)
 
-If you have not installed these packages yet, please refer to the commands in the **Dockerfile of the HSRB_ROS_Docker_Image repository** (`Link <https://github.com/v4r-tuwien/HSRB-ROS-Docker-Image/blob/main/docker/hsr-devel/Dockerfile>`_) on how to install ROS, the toyota HSR packages and moveit. If possible, use the versions specified in the Dockerfile. ..TODO update
+If you have not installed these packages yet, please refer to the commands in the **Dockerfile of the HSRB_ROS_Docker_Image repository** (`Link <https://github.com/v4r-tuwien/HSRB-ROS-Docker-Image/blob/main/docker/hsr-devel/Dockerfile>`_) on how to install ROS, the toyota HSR packages and moveit. If possible, use the versions specified in the Dockerfile.
 
 .. warning::
    You will need access to the private v4r github repositories, because some of the repositories include confidential data from toyota. This means that you have to setup your github ssh-key (`Link for instructions <https://docs.github.com/en/authentication/connecting-to-github-with-ssh>`_)
 
 ===========================
-Creating a colcon workspace
+Creating a catkin workspace
 ===========================
-We recommend to create a new colcon workspace for the grasping pipeline. You can do so with the following commands:
+We recommend to create a new catkin workspace for the grasping pipeline. You can do so with the following commands:
 
 .. code-block:: console
 
