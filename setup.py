@@ -44,7 +44,8 @@ setup(
         'execute_grasp_server = grasping_pipeline.execute_grasp_action_server:main',
         'place = grasping_pipeline.place:main',
         'userinput_publisher = grasping_pipeline.userinput_publisher:main',
-        'statemachine = grasping_pipeline.statemachine:main'
+        'statemachine = grasping_pipeline.statemachine:main',
+        'test_eef = grasping_pipeline.test_eef:main'
     ],
     },
 

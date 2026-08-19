@@ -6,13 +6,17 @@ Panels:
       Expanded:
         - /Global Options1
         - /TF1/Frames1
-        - /Map1
+        - /PointCloud21
+        - /PointCloud21/Topic1
       Splitter Ratio: 0.5916666388511658
     Tree Height: 376
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
-    Expanded: ~
+    Expanded:
+      - /Measure1
+      - /2D Pose Estimate1
+      - /2D Pose Estimate1/Topic1
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
   - Class: rviz_common/Views
@@ -54,20 +58,237 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /robot_description
-      Enabled: false
+      Enabled: true
       Links:
         All Links Enabled: true
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
-        Link Tree Style: ""
+        Link Tree Style: Links in Alphabetic Order
+        arm_flex_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        arm_lift_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        arm_roll_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_b_bumper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_f_bumper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_imu_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_l_drive_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_l_passive_wheel_x_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_l_passive_wheel_y_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_l_passive_wheel_z_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_r_drive_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_r_passive_wheel_x_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_r_passive_wheel_y_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_r_passive_wheel_z_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_range_sensor_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_roll_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_camera_gazebo_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_l_distal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        hand_l_finger_tip_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_l_finger_vacuum_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        hand_l_mimic_distal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_l_proximal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_l_spring_proximal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        hand_motor_dummy_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_palm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        hand_r_distal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        hand_r_finger_tip_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_r_mimic_distal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_r_proximal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        hand_r_spring_proximal_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        head_center_camera_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        head_center_camera_gazebo_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        head_l_stereo_camera_gazebo_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        head_l_stereo_camera_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        head_pan_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        head_r_stereo_camera_gazebo_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        head_r_stereo_camera_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        head_rgbd_sensor_gazebo_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        head_rgbd_sensor_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        head_tilt_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        torso_lift_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_flex_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_ft_sensor_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        wrist_ft_sensor_mount_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        wrist_roll_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
       Name: RobotModel
       TF Prefix: ""
       Update Interval: 0
-      Value: false
+      Value: true
       Visual Enabled: true
     - Class: rviz_default_plugins/TF
       Enabled: true
@@ -172,12 +393,8 @@ Visualization Manager:
           Value: false
         odom:
           Value: false
-        pose_obj_000005:
-          Value: true
         torso_lift_link:
           Value: false
-        world:
-          Value: true
         wrist_flex_link:
           Value: false
         wrist_ft_sensor_frame:
@@ -255,8 +472,6 @@ Visualization Manager:
                           head_rgbd_sensor_rgb_frame:
                             head_rgbd_sensor_depth_frame:
                               {}
-                            pose_obj_000005:
-                              {}
                         head_l_stereo_camera_gazebo_frame:
                           {}
                       head_r_stereo_camera_link:
@@ -266,8 +481,6 @@ Visualization Manager:
                         head_rgbd_sensor_gazebo_frame:
                           {}
             base_footprint_wheel:
-              {}
-            world:
               {}
       Update Interval: 0
       Value: true
@@ -295,7 +508,7 @@ Visualization Manager:
     - Alpha: 0.5
       Class: rviz_default_plugins/Map
       Color Scheme: map
-      Draw Behind: false
+      Draw Behind: true
       Enabled: true
       Name: Map
       Topic:
@@ -304,34 +517,13 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /global_costmap/costmap
+        Value: /dynamic_obstacle_map
       Update Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /global_costmap/costmap_updates
-      Use Timestamp: false
-      Value: true
-    - Alpha: 0.699999988079071
-      Class: rviz_default_plugins/Map
-      Color Scheme: map
-      Draw Behind: false
-      Enabled: true
-      Name: Map
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /local_costmap/costmap
-      Update Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /local_costmap/costmap_updates
+        Value: /dynamic_obstacle_map_updates
       Use Timestamp: false
       Value: true
     - Alpha: 1
@@ -573,7 +765,7 @@ Visualization Manager:
       Channel Name: intensity
       Class: rviz_default_plugins/PointCloud2
       Color: 255; 255; 255
-      Color Transformer: ""
+      Color Transformer: RGB8
       Decay Time: 0
       Enabled: false
       Invert Rainbow: false
@@ -582,7 +774,7 @@ Visualization Manager:
       Min Color: 0; 0; 0
       Min Intensity: 0
       Name: PointCloud2
-      Position Transformer: ""
+      Position Transformer: XYZ
       Selectable: true
       Size (Pixels): 3
       Size (m): 0.009999999776482582
@@ -592,7 +784,7 @@ Visualization Manager:
         Durability Policy: Volatile
         Filter size: 10
         History Policy: Keep Last
-        Reliability Policy: Reliable
+        Reliability Policy: Best Effort
         Value: /head_rgbd_sensor/depth_registered/rectified_points
       Use Fixed Frame: true
       Use rainbow: true
@@ -618,7 +810,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /initialpose
+        Value: /laser_2d_correct_pose
     - Class: nav2_rviz_plugins/GoalTool
   Transformation:
     Current:
@@ -627,25 +819,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 34.9974365234375
+      Distance: 34.687015533447266
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 5.921998023986816
-        Y: 0.8031781315803528
-        Z: -6.4894585609436035
+        X: 5.544781684875488
+        Y: 1.1063289642333984
+        Z: -6.238178253173828
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.734761118888855
+      Pitch: 0.499761164188385
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 3.242388963699341
+      Yaw: 3.4823873043060303
     Saved: ~
 Window Geometry:
   Displays:
